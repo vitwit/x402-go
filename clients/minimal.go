@@ -4,10 +4,7 @@ package clients
 
 import (
 	"context"
-	"fmt"
-	"time"
 
-	"github.com/shopspring/decimal"
 	x402types "github.com/vitwit/x402/types"
 )
 
@@ -19,12 +16,6 @@ type MinimalEVMClient struct {
 
 // MinimalSolanaClient provides basic Solana functionality
 type MinimalSolanaClient struct {
-	network x402types.Network
-	rpcURL  string
-}
-
-// MinimalCosmosClient provides basic Cosmos functionality  
-type MinimalCosmosClient struct {
 	network x402types.Network
 	rpcURL  string
 }
@@ -45,124 +36,82 @@ func NewMinimalSolanaClient(network x402types.Network, rpcURL string) (*MinimalS
 	}, nil
 }
 
-// NewMinimalCosmosClient creates a minimal Cosmos client
-func NewMinimalCosmosClient(network x402types.Network, rpcURL string) (*MinimalCosmosClient, error) {
-	return &MinimalCosmosClient{
-		network: network,
-		rpcURL:  rpcURL,
-	}, nil
-}
-
 // VerifyPayment for EVM - simplified implementation
 func (c *MinimalEVMClient) VerifyPayment(
 	ctx context.Context,
-	payload *x402types.PaymentPayload,
-	requirements *x402types.PaymentRequirements,
+	payload *x402types.VerifyRequest,
 ) (*x402types.VerificationResult, error) {
 	// Simplified verification - in production this would query the blockchain
-	amount, err := decimal.NewFromString(payload.Amount)
-	if err != nil {
-		return &x402types.VerificationResult{
-			Valid: false,
-			Error: fmt.Sprintf("invalid amount: %v", err),
-		}, nil
-	}
+	// amount, err := decimal.NewFromString(payload.Amount)
+	// if err != nil {
+	// 	return &x402types.VerificationResult{
+	// 		Valid: false,
+	// 		Error: fmt.Sprintf("invalid amount: %v", err),
+	// 	}, nil
+	// }
 
-	return &x402types.VerificationResult{
-		Valid:         true,
-		Amount:        &amount,
-		Token:         requirements.Token.Address,
-		Recipient:     payload.Recipient,
-		Sender:        payload.Sender,
-		Timestamp:     &payload.Timestamp,
-		Confirmations: 1,
-	}, nil
+	// return &x402types.VerificationResult{
+	// 	Valid:         true,
+	// 	Amount:        &amount,
+	// 	Token:         requirements.Token.Address,
+	// 	Recipient:     payload.Recipient,
+	// 	Sender:        payload.Sender,
+	// 	Timestamp:     &payload.Timestamp,
+	// 	Confirmations: 1,
+	// }, nil
+
+	return nil, nil
 }
 
 // VerifyPayment for Solana - simplified implementation
 func (c *MinimalSolanaClient) VerifyPayment(
 	ctx context.Context,
-	payload *x402types.PaymentPayload,
-	requirements *x402types.PaymentRequirements,
+	payload *x402types.VerifyRequest,
 ) (*x402types.VerificationResult, error) {
-	amount, err := decimal.NewFromString(payload.Amount)
-	if err != nil {
-		return &x402types.VerificationResult{
-			Valid: false,
-			Error: fmt.Sprintf("invalid amount: %v", err),
-		}, nil
-	}
+	// amount, err := decimal.NewFromString(payload.Amount)
+	// if err != nil {
+	// 	return &x402types.VerificationResult{
+	// 		Valid: false,
+	// 		Error: fmt.Sprintf("invalid amount: %v", err),
+	// 	}, nil
+	// }
 
-	return &x402types.VerificationResult{
-		Valid:         true,
-		Amount:        &amount,
-		Token:         requirements.Token.Symbol,
-		Recipient:     payload.Recipient,
-		Sender:        payload.Sender,
-		Timestamp:     &payload.Timestamp,
-		Confirmations: 1,
-	}, nil
-}
+	// return &x402types.VerificationResult{
+	// 	Valid:         true,
+	// 	Amount:        &amount,
+	// 	Token:         requirements.Token.Symbol,
+	// 	Recipient:     payload.Recipient,
+	// 	Sender:        payload.Sender,
+	// 	Timestamp:     &payload.Timestamp,
+	// 	Confirmations: 1,
+	// }, nil
 
-// VerifyPayment for Cosmos - simplified implementation  
-func (c *MinimalCosmosClient) VerifyPayment(
-	ctx context.Context,
-	payload *x402types.PaymentPayload,
-	requirements *x402types.PaymentRequirements,
-) (*x402types.VerificationResult, error) {
-	amount, err := decimal.NewFromString(payload.Amount)
-	if err != nil {
-		return &x402types.VerificationResult{
-			Valid: false,
-			Error: fmt.Sprintf("invalid amount: %v", err),
-		}, nil
-	}
-
-	return &x402types.VerificationResult{
-		Valid:         true,
-		Amount:        &amount,
-		Token:         requirements.Token.Symbol,
-		Recipient:     payload.Recipient,
-		Sender:        payload.Sender,
-		Timestamp:     &payload.Timestamp,
-		Confirmations: 1,
-	}, nil
-}
-
-// Settlement methods - simplified implementations
-func (c *MinimalEVMClient) WaitForConfirmation(ctx context.Context, txHash string, confirmations int) (*x402types.SettlementResult, error) {
-	return &x402types.SettlementResult{
-		Success:         true,
-		TransactionHash: txHash,
-		Confirmations:   confirmations,
-		Timestamp:       time.Now(),
-	}, nil
-}
-
-func (c *MinimalSolanaClient) WaitForConfirmation(ctx context.Context, txHash string, confirmations int) (*x402types.SettlementResult, error) {
-	return &x402types.SettlementResult{
-		Success:         true,
-		TransactionHash: txHash,
-		Confirmations:   confirmations,
-		Timestamp:       time.Now(),
-	}, nil
-}
-
-func (c *MinimalCosmosClient) WaitForConfirmation(ctx context.Context, txHash string, confirmations int) (*x402types.SettlementResult, error) {
-	return &x402types.SettlementResult{
-		Success:         true,
-		TransactionHash: txHash,
-		Confirmations:   confirmations,
-		Timestamp:       time.Now(),
-	}, nil
+	return nil, nil
 }
 
 // Close methods
 func (c *MinimalEVMClient) Close()    {}
 func (c *MinimalSolanaClient) Close() {}
-func (c *MinimalCosmosClient) Close() {}
 
 // GetNetwork methods
 func (c *MinimalEVMClient) GetNetwork() x402types.Network    { return c.network }
 func (c *MinimalSolanaClient) GetNetwork() x402types.Network { return c.network }
-func (c *MinimalCosmosClient) GetNetwork() x402types.Network { return c.network }
+
+// Settlement methods - simplified implementations
+func (c *MinimalEVMClient) WaitForConfirmation(ctx context.Context, txHash string, confirmations int) (*x402types.SettlementResult, error) {
+	return &x402types.SettlementResult{
+		Success: true,
+		// TransactionHash: txHash,
+		// Confirmations:   confirmations,
+		// Timestamp:       time.Now(),
+	}, nil
+}
+
+func (c *MinimalSolanaClient) WaitForConfirmation(ctx context.Context, txHash string, confirmations int) (*x402types.SettlementResult, error) {
+	return &x402types.SettlementResult{
+		Success: true,
+		// TransactionHash: txHash,
+		// Confirmations:   confirmations,
+		// Timestamp:       time.Now(),
+	}, nil
+}
