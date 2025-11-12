@@ -1,0 +1,571 @@
+package clients
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/shopspring/decimal"
+	
+	x402types "github.com/vitwit/x402/types"
+	"github.com/vitwit/x402/utils"
+)
+
+// ERC20 ABI for token operations
+const ERC20ABI = `[
+	{
+		"constant":true,
+		"inputs":[{"name":"_owner","type":"address"}],
+		"name":"balanceOf",
+		"outputs":[{"name":"balance","type":"uint256"}],
+		"type":"function"
+	},
+	{
+		"constant":true,
+		"inputs":[],
+		"name":"decimals",
+		"outputs":[{"name":"","type":"uint8"}],
+		"type":"function"
+	},
+	{
+		"constant":true,
+		"inputs":[],
+		"name":"symbol",
+		"outputs":[{"name":"","type":"string"}],
+		"type":"function"
+	},
+	{
+		"constant":true,
+		"inputs":[],
+		"name":"name",
+		"outputs":[{"name":"","type":"string"}],
+		"type":"function"
+	},
+	{
+		"constant":false,
+		"inputs":[
+			{"name":"_to","type":"address"},
+			{"name":"_value","type":"uint256"}
+		],
+		"name":"transfer",
+		"outputs":[{"name":"","type":"bool"}],
+		"type":"function"
+	},
+	{
+		"constant":false,
+		"inputs":[
+			{"name":"_from","type":"address"},
+			{"name":"_to","type":"address"},
+			{"name":"_value","type":"uint256"}
+		],
+		"name":"transferFrom",
+		"outputs":[{"name":"","type":"bool"}],
+		"type":"function"
+	},
+	{
+		"constant":false,
+		"inputs":[
+			{"name":"_spender","type":"address"},
+			{"name":"_value","type":"uint256"}
+		],
+		"name":"approve",
+		"outputs":[{"name":"","type":"bool"}],
+		"type":"function"
+	}
+]`
+
+// EVMClient handles EVM blockchain operations
+type EVMClient struct {
+	client    *ethclient.Client
+	chainID   *big.Int
+	network   x402types.Network
+	rpcURL    string
+	timeout   time.Duration
+	erc20ABI  abi.ABI
+}
+
+// NewEVMClient creates a new EVM client instance
+func NewEVMClient(network x402types.Network, rpcURL string) (*EVMClient, error) {
+	if !network.IsEVM() {
+		return nil, &x402types.X402Error{
+			Code:    x402types.ErrUnsupportedNetwork,
+			Message: fmt.Sprintf("network %s is not an EVM network", network),
+		}
+	}
+	
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return nil, &x402types.X402Error{
+			Code:    x402types.ErrNetworkError,
+			Message: fmt.Sprintf("failed to connect to EVM node: %v", err),
+		}
+	}
+	
+	// Parse ERC20 ABI
+	erc20ABI, err := abi.JSON(strings.NewReader(ERC20ABI))
+	if err != nil {
+		return nil, &x402types.X402Error{
+			Code:    x402types.ErrConfigError,
+			Message: fmt.Sprintf("failed to parse ERC20 ABI: %v", err),
+		}
+	}
+	
+	evmClient := &EVMClient{
+		client:   client,
+		network:  network,
+		rpcURL:   rpcURL,
+		timeout:  30 * time.Second,
+		erc20ABI: erc20ABI,
+	}
+	
+	// Get and validate chain ID
+	ctx, cancel := context.WithTimeout(context.Background(), evmClient.timeout)
+	defer cancel()
+	
+	chainID, err := client.ChainID(ctx)
+	if err != nil {
+		return nil, &x402types.X402Error{
+			Code:    x402types.ErrNetworkError,
+			Message: fmt.Sprintf("failed to get chain ID: %v", err),
+		}
+	}
+	
+	evmClient.chainID = chainID
+	
+	// Validate chain ID matches network
+	expectedChainID := getExpectedChainID(network)
+	if expectedChainID != nil && chainID.Cmp(expectedChainID) != 0 {
+		return nil, &x402types.X402Error{
+			Code:    x402types.ErrConfigError,
+			Message: fmt.Sprintf("chain ID mismatch: expected %s, got %s", expectedChainID, chainID),
+		}
+	}
+	
+	return evmClient, nil
+}
+
+// VerifyPayment verifies an EVM payment
+func (c *EVMClient) VerifyPayment(
+	ctx context.Context,
+	payload *x402types.PaymentPayload,
+	requirements *x402types.PaymentRequirements,
+) (*x402types.VerificationResult, error) {
+	if payload.EVM == nil {
+		return &x402types.VerificationResult{
+			Valid: false,
+			Error: "EVM payment data is required",
+		}, nil
+	}
+	
+	// Get transaction receipt
+	txHash := common.HexToHash(payload.EVM.TransactionHash)
+	receipt, err := c.client.TransactionReceipt(ctx, txHash)
+	if err != nil {
+		return &x402types.VerificationResult{
+			Valid: false,
+			Error: fmt.Sprintf("failed to get transaction receipt: %v", err),
+		}, nil
+	}
+	
+	// Check transaction status
+	if receipt.Status == 0 {
+		return &x402types.VerificationResult{
+			Valid: false,
+			Error: "transaction failed",
+		}, nil
+	}
+	
+	// Get transaction details
+	tx, _, err := c.client.TransactionByHash(ctx, txHash)
+	if err != nil {
+		return &x402types.VerificationResult{
+			Valid: false,
+			Error: fmt.Sprintf("failed to get transaction: %v", err),
+		}, nil
+	}
+	
+	// Verify basic transaction details
+	result := &x402types.VerificationResult{
+		Valid:         true,
+		Confirmations: 0, // Will be calculated below
+		Timestamp:     &payload.Timestamp,
+	}
+	
+	// Calculate confirmations
+	if receipt.BlockNumber != nil {
+		latestBlock, err := c.client.BlockNumber(ctx)
+		if err == nil {
+			result.Confirmations = int(latestBlock - receipt.BlockNumber.Uint64())
+		}
+	}
+	
+	// Verify payment based on token type
+	if requirements.Token.Standard == x402types.TokenStandardERC20 {
+		// ERC20 token transfer verification
+		isValid, amount, err := c.verifyERC20Transfer(ctx, receipt, tx, requirements)
+		if err != nil {
+			result.Valid = false
+			result.Error = fmt.Sprintf("ERC20 verification failed: %v", err)
+			return result, nil
+		}
+		
+		result.Valid = isValid
+		result.Amount = amount
+		result.Token = requirements.Token.Address
+		
+	} else if requirements.Token.Standard == x402types.TokenStandardNative {
+		// Native token (ETH/MATIC) transfer verification
+		isValid, amount, err := c.verifyNativeTransfer(tx, requirements)
+		if err != nil {
+			result.Valid = false
+			result.Error = fmt.Sprintf("native transfer verification failed: %v", err)
+			return result, nil
+		}
+		
+		result.Valid = isValid
+		result.Amount = amount
+		result.Token = "native"
+	}
+	
+	// Verify recipient and sender
+	result.Recipient = payload.Recipient
+	result.Sender = payload.Sender
+	
+	// Additional validations
+	if result.Valid {
+		// Check if payment meets amount requirements
+		if !c.verifyAmount(result.Amount, requirements.Amount, requirements.Scheme) {
+			result.Valid = false
+			result.Error = "payment amount does not meet requirements"
+		}
+		
+		// Check deadline if specified
+		if requirements.Deadline != nil && payload.Timestamp.After(*requirements.Deadline) {
+			result.Valid = false
+			result.Error = "payment deadline exceeded"
+		}
+	}
+	
+	return result, nil
+}
+
+// CreateTransaction creates a new EVM transaction for settlement
+func (c *EVMClient) CreateTransaction(
+	ctx context.Context,
+	privateKey *ecdsa.PrivateKey,
+	to common.Address,
+	amount *big.Int,
+	tokenAddress *common.Address,
+	data []byte,
+) (*types.Transaction, error) {
+	fromAddress := utils.AddressFromPrivateKey(privateKey)
+	
+	// Get nonce
+	nonce, err := c.client.PendingNonceAt(ctx, fromAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get nonce: %w", err)
+	}
+	
+	// Estimate gas
+	var gasLimit uint64
+	var value *big.Int
+	
+	if tokenAddress != nil {
+		// ERC20 transfer
+		value = big.NewInt(0)
+		gasLimit = 65000 // Standard gas limit for ERC20 transfers
+		
+		// Create transfer call data if not provided
+		if data == nil {
+			transferData, err := c.erc20ABI.Pack("transfer", to, amount)
+			if err != nil {
+				return nil, fmt.Errorf("failed to pack transfer data: %w", err)
+			}
+			data = transferData
+			to = *tokenAddress
+		}
+	} else {
+		// Native transfer
+		value = amount
+		gasLimit = 21000 // Standard gas limit for ETH transfers
+	}
+	
+	// Get gas price
+	gasPrice, err := c.client.SuggestGasPrice(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gas price: %w", err)
+	}
+	
+	// Create transaction
+	tx := types.NewTransaction(
+		nonce,
+		to,
+		value,
+		gasLimit,
+		gasPrice,
+		data,
+	)
+	
+	// Sign transaction
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(c.chainID), privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign transaction: %w", err)
+	}
+	
+	return signedTx, nil
+}
+
+// SendTransaction broadcasts a signed transaction
+func (c *EVMClient) SendTransaction(ctx context.Context, tx *types.Transaction) (string, error) {
+	err := c.client.SendTransaction(ctx, tx)
+	if err != nil {
+		return "", fmt.Errorf("failed to send transaction: %w", err)
+	}
+	
+	return tx.Hash().Hex(), nil
+}
+
+// WaitForConfirmation waits for transaction confirmation
+func (c *EVMClient) WaitForConfirmation(
+	ctx context.Context,
+	txHash string,
+	requiredConfirmations int,
+) (*x402types.SettlementResult, error) {
+	hash := common.HexToHash(txHash)
+	
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+			receipt, err := c.client.TransactionReceipt(ctx, hash)
+			if err != nil {
+				continue // Transaction not yet mined
+			}
+			
+			// Check if transaction succeeded
+			if receipt.Status == 0 {
+				return &x402types.SettlementResult{
+					Success:         false,
+					TransactionHash: txHash,
+					Error:           "transaction failed",
+					Timestamp:       time.Now(),
+				}, nil
+			}
+			
+			// Calculate confirmations
+			latestBlock, err := c.client.BlockNumber(ctx)
+			if err != nil {
+				continue
+			}
+			
+			confirmations := int(latestBlock - receipt.BlockNumber.Uint64())
+			
+			if confirmations >= requiredConfirmations {
+				return &x402types.SettlementResult{
+					Success:         true,
+					TransactionHash: txHash,
+					BlockNumber:     receipt.BlockNumber.Uint64(),
+					Confirmations:   confirmations,
+					GasUsed:         receipt.GasUsed,
+					Timestamp:       time.Now(),
+				}, nil
+			}
+		}
+	}
+}
+
+// Helper methods
+
+func (c *EVMClient) verifyERC20Transfer(
+	ctx context.Context,
+	receipt *types.Receipt,
+	tx *types.Transaction,
+	requirements *x402types.PaymentRequirements,
+) (bool, *decimal.Decimal, error) {
+	// Parse transfer events from logs
+	transferEventSignature := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	
+	for _, log := range receipt.Logs {
+		if len(log.Topics) == 3 && log.Topics[0] == transferEventSignature {
+			// Verify this is from the correct token contract
+			if log.Address.Hex() != requirements.Token.Address {
+				continue
+			}
+			
+			// Parse the transfer event
+			to := common.HexToAddress(log.Topics[2].Hex())
+			amount := new(big.Int).SetBytes(log.Data)
+			
+			// Verify recipient
+			if to.Hex() != requirements.Recipient {
+				continue
+			}
+			
+			// Convert amount to decimal
+			amountDecimal := decimal.NewFromBigInt(amount, -int32(requirements.Token.Decimals))
+			
+			return true, &amountDecimal, nil
+		}
+	}
+	
+	return false, nil, fmt.Errorf("no matching transfer event found")
+}
+
+func (c *EVMClient) verifyNativeTransfer(
+	tx *types.Transaction,
+	requirements *x402types.PaymentRequirements,
+) (bool, *decimal.Decimal, error) {
+	// Verify recipient
+	if tx.To() == nil || tx.To().Hex() != requirements.Recipient {
+		return false, nil, fmt.Errorf("recipient mismatch")
+	}
+	
+	// Convert amount to decimal (native tokens typically have 18 decimals)
+	amount := decimal.NewFromBigInt(tx.Value(), -18)
+	
+	return true, &amount, nil
+}
+
+func (c *EVMClient) verifyAmount(
+	actualAmount *decimal.Decimal,
+	requiredAmount *x402types.Amount,
+	scheme x402types.PaymentScheme,
+) bool {
+	if actualAmount == nil || requiredAmount == nil {
+		return false
+	}
+	
+	switch scheme {
+	case x402types.SchemeExact:
+		if requiredAmount.Value == nil {
+			return false
+		}
+		return actualAmount.Equal(*requiredAmount.Value)
+		
+	case x402types.SchemeRange:
+		if requiredAmount.Min == nil || requiredAmount.Max == nil {
+			return false
+		}
+		return actualAmount.GreaterThanOrEqual(*requiredAmount.Min) &&
+			actualAmount.LessThanOrEqual(*requiredAmount.Max)
+			
+	case x402types.SchemeAny:
+		// Any positive amount is acceptable
+		return actualAmount.IsPositive()
+		
+	default:
+		return false
+	}
+}
+
+// GetTokenInfo retrieves information about an ERC20 token
+func (c *EVMClient) GetTokenInfo(ctx context.Context, tokenAddress common.Address) (*x402types.TokenInfo, error) {
+	// Create contract instance
+	contract := bind.NewBoundContract(tokenAddress, c.erc20ABI, c.client, c.client, c.client)
+	
+	var (
+		name     string
+		symbol   string
+		decimals uint8
+	)
+	
+	// Get token name
+	result := []interface{}{&name}
+	err := contract.Call(&bind.CallOpts{Context: ctx}, &result, "name")
+	if err != nil {
+		name = "" // Some tokens don't implement name
+	}
+	
+	// Get token symbol
+	result = []interface{}{&symbol}
+	err = contract.Call(&bind.CallOpts{Context: ctx}, &result, "symbol")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token symbol: %w", err)
+	}
+	
+	// Get token decimals
+	result = []interface{}{&decimals}
+	err = contract.Call(&bind.CallOpts{Context: ctx}, &result, "decimals")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token decimals: %w", err)
+	}
+	
+	return &x402types.TokenInfo{
+		Standard: x402types.TokenStandardERC20,
+		Address:  tokenAddress.Hex(),
+		Symbol:   symbol,
+		Name:     name,
+		Decimals: int(decimals),
+		ChainID:  c.chainID.String(),
+	}, nil
+}
+
+// GetBalance retrieves the balance of an address for a specific token
+func (c *EVMClient) GetBalance(ctx context.Context, address common.Address, tokenAddress *common.Address) (*big.Int, error) {
+	if tokenAddress != nil {
+		// ERC20 token balance
+		contract := bind.NewBoundContract(*tokenAddress, c.erc20ABI, c.client, c.client, c.client)
+		
+		var balance *big.Int
+		result := []interface{}{&balance}
+		err := contract.Call(&bind.CallOpts{Context: ctx}, &result, "balanceOf", address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get token balance: %w", err)
+		}
+		
+		return balance, nil
+	} else {
+		// Native token balance
+		balance, err := c.client.BalanceAt(ctx, address, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get native balance: %w", err)
+		}
+		
+		return balance, nil
+	}
+}
+
+// Close closes the client connection
+func (c *EVMClient) Close() {
+	c.client.Close()
+}
+
+// Helper function to get expected chain IDs for networks
+func getExpectedChainID(network x402types.Network) *big.Int {
+	switch network {
+	case x402types.NetworkPolygon:
+		return big.NewInt(137)
+	case x402types.NetworkPolygonAmoy:
+		return big.NewInt(80002)
+	case x402types.NetworkBase:
+		return big.NewInt(8453)
+	case x402types.NetworkBaseSepolia:
+		return big.NewInt(84532)
+	default:
+		return nil
+	}
+}
+
+// GetNetwork returns the network this client is connected to
+func (c *EVMClient) GetNetwork() x402types.Network {
+	return c.network
+}
+
+// GetChainID returns the chain ID
+func (c *EVMClient) GetChainID() *big.Int {
+	return new(big.Int).Set(c.chainID)
+}
