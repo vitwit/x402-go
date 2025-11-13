@@ -74,7 +74,7 @@ func (x *X402) AddNetwork(network types.Network, config types.ClientConfig) erro
 
 // addEVMNetwork adds an EVM network client
 func (x *X402) addEVMNetwork(network types.Network, config types.ClientConfig) error {
-	client, err := clients.NewEVMClient(network, config.RPCUrl)
+	client, err := clients.NewEVMClient(network, config.RPCUrl, config.AcceptedDenom)
 	if err != nil {
 		return fmt.Errorf("failed to create EVM client for %s: %w", network, err)
 	}

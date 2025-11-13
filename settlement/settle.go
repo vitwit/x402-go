@@ -116,43 +116,25 @@ func (s *SettlementService) settleEVMPayment(
 	ctx context.Context,
 	request *types.VerifyRequest,
 ) (*types.SettlementResult, error) {
-	// network := types.Network(request.PaymentRequirements.Network)
+	network := types.Network(request.PaymentRequirements.Network)
 
-	// _, exists := s.evmClients[network]
-	// if !exists {
-	// 	return &types.SettlementResult{
-	// 		Success: false,
-	// 		Error:   fmt.Sprintf("no EVM client configured for network %s", network),
-	// 		Timestamp: time.Now(),
-	// 	}, nil
-	// }
+	client, exists := s.evmClients[network]
+	if !exists {
+		return &types.SettlementResult{
+			Success: false,
+			Error:   fmt.Sprintf("no EVM client configured for network %s", network),
+		}, nil
+	}
 
-	// // Basic validation for minimal client implementation
-	// if request.PaymentRequirements.Recipient == "" {
-	// 	return &types.SettlementResult{
-	// 		Success: false,
-	// 		Error:   "recipient address is required",
-	// 		Timestamp: time.Now(),
-	// 	}, nil
-	// }
+	result, err := client.SettlePayment(ctx, request)
+	if err != nil {
+		return &types.SettlementResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
 
-	// if request.PrivateKey == "" {
-	// 	return &types.SettlementResult{
-	// 		Success: false,
-	// 		Error:   "private key is required",
-	// 		Timestamp: time.Now(),
-	// 	}, nil
-	// }
-
-	// // Simulate settlement success for minimal implementation
-	// return &types.SettlementResult{
-	// 	Success:         true,
-	// 	TransactionHash: fmt.Sprintf("0x%x", time.Now().UnixNano()),
-	// 	Confirmations:   getRequiredConfirmations(network, request.Options.Confirmations),
-	// 	Timestamp:       time.Now(),
-	// }, nil
-
-	return nil, nil
+	return result, nil
 }
 
 // settleSolanaPayment settles a Solana payment

@@ -23,6 +23,7 @@ const (
 	NetworkPolygonAmoy Network = "polygon-amoy" // testnet
 	NetworkBaseSepolia Network = "base-sepolia" // testnet
 	NetworkBase        Network = "base"
+	NetworkBaseAnvil   Network = "anvil" // testnet
 
 	// Solana Networks
 	NetworkSolanaMainnet Network = "solana-mainnet"
@@ -368,7 +369,7 @@ func (pr *PaymentRequirements) Validate() error {
 
 // Helper functions for network classification
 func (n Network) IsEVM() bool {
-	return n == NetworkPolygon || n == NetworkPolygonAmoy || n == NetworkBaseSepolia || n == NetworkBase
+	return n == NetworkPolygon || n == NetworkPolygonAmoy || n == NetworkBaseSepolia || n == NetworkBase || n == "anvil"
 }
 
 func (n Network) IsSolana() bool {
