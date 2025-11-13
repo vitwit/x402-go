@@ -56,6 +56,7 @@ func (x *X402) AddNetwork(network types.Network, config types.ClientConfig) erro
 		Scheme:      "exact",
 		Network:     network.String(),
 	})
+
 	switch {
 	case network.IsEVM():
 		return x.addEVMNetwork(network, config)
@@ -73,7 +74,7 @@ func (x *X402) AddNetwork(network types.Network, config types.ClientConfig) erro
 
 // addEVMNetwork adds an EVM network client
 func (x *X402) addEVMNetwork(network types.Network, config types.ClientConfig) error {
-	client, err := clients.NewMinimalEVMClient(network, config.RPCUrl)
+	client, err := clients.NewEVMClient(network, config.RPCUrl)
 	if err != nil {
 		return fmt.Errorf("failed to create EVM client for %s: %w", network, err)
 	}
@@ -91,7 +92,7 @@ func (x *X402) addEVMNetwork(network types.Network, config types.ClientConfig) e
 
 // addSolanaNetwork adds a Solana network client
 func (x *X402) addSolanaNetwork(network types.Network, config types.ClientConfig) error {
-	client, err := clients.NewMinimalSolanaClient(network, config.RPCUrl)
+	client, err := clients.NewSolanaClient(network, config.RPCUrl)
 	if err != nil {
 		return fmt.Errorf("failed to create Solana client for %s: %w", network, err)
 	}

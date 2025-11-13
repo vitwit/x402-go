@@ -17,8 +17,8 @@ type Settler interface {
 
 // SettlementService manages payment settlement across multiple networks
 type SettlementService struct {
-	evmClients    map[types.Network]*clients.MinimalEVMClient
-	solanaClients map[types.Network]*clients.MinimalSolanaClient
+	evmClients    map[types.Network]*clients.EVMClient
+	solanaClients map[types.Network]*clients.SolanaClient
 	cosmosClients map[types.Network]*clients.CosmosClient
 	timeout       time.Duration
 	defaultGas    map[types.Network]uint64
@@ -27,8 +27,8 @@ type SettlementService struct {
 // NewSettlementService creates a new settlement service
 func NewSettlementService(timeout time.Duration) *SettlementService {
 	return &SettlementService{
-		evmClients:    make(map[types.Network]*clients.MinimalEVMClient),
-		solanaClients: make(map[types.Network]*clients.MinimalSolanaClient),
+		evmClients:    make(map[types.Network]*clients.EVMClient),
+		solanaClients: make(map[types.Network]*clients.SolanaClient),
 		cosmosClients: make(map[types.Network]*clients.CosmosClient),
 		timeout:       timeout,
 		defaultGas:    getDefaultGasLimits(),
@@ -36,7 +36,7 @@ func NewSettlementService(timeout time.Duration) *SettlementService {
 }
 
 // AddEVMClient adds an EVM client for a specific network
-func (s *SettlementService) AddEVMClient(network types.Network, client *clients.MinimalEVMClient) error {
+func (s *SettlementService) AddEVMClient(network types.Network, client *clients.EVMClient) error {
 	if !network.IsEVM() {
 		return &types.X402Error{
 			Code:    types.ErrUnsupportedNetwork,
@@ -49,7 +49,7 @@ func (s *SettlementService) AddEVMClient(network types.Network, client *clients.
 }
 
 // AddSolanaClient adds a Solana client for a specific network
-func (s *SettlementService) AddSolanaClient(network types.Network, client *clients.MinimalSolanaClient) error {
+func (s *SettlementService) AddSolanaClient(network types.Network, client *clients.SolanaClient) error {
 	if !network.IsSolana() {
 		return &types.X402Error{
 			Code:    types.ErrUnsupportedNetwork,
@@ -160,43 +160,25 @@ func (s *SettlementService) settleSolanaPayment(
 	ctx context.Context,
 	request *types.VerifyRequest,
 ) (*types.SettlementResult, error) {
-	// network := types.Network(request.PaymentRequirements.Network)
+	network := types.Network(request.PaymentRequirements.Network)
 
-	// _, exists := s.solanaClients[network]
-	// if !exists {
-	// 	return &types.SettlementResult{
-	// 		Success:   false,
-	// 		Error:     fmt.Sprintf("no Solana client configured for network %s", network),
-	// 		Timestamp: time.Now(),
-	// 	}, nil
-	// }
+	client, exists := s.solanaClients[network]
+	if !exists {
+		return &types.SettlementResult{
+			Success: false,
+			Error:   fmt.Sprintf("no solana client configured for network %s", network),
+		}, nil
+	}
 
-	// // Basic validation for minimal client implementation
-	// if request.PaymentRequirements.Recipient == "" {
-	// 	return &types.SettlementResult{
-	// 		Success:   false,
-	// 		Error:     "recipient address is required",
-	// 		Timestamp: time.Now(),
-	// 	}, nil
-	// }
+	result, err := client.SettlePayment(ctx, request)
+	if err != nil {
+		return &types.SettlementResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
 
-	// if request.PrivateKey == "" {
-	// 	return &types.SettlementResult{
-	// 		Success:   false,
-	// 		Error:     "private key is required",
-	// 		Timestamp: time.Now(),
-	// 	}, nil
-	// }
-
-	// // Simulate settlement success for minimal implementation
-	// return &types.SettlementResult{
-	// 	Success:         true,
-	// 	TransactionHash: fmt.Sprintf("%x", time.Now().UnixNano()),
-	// 	Confirmations:   getRequiredConfirmations(network, request.Options.Confirmations),
-	// 	Timestamp:       time.Now(),
-	// }, nil
-
-	return nil, nil
+	return result, nil
 }
 
 // settleCosmosPayment settles a Cosmos payment

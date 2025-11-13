@@ -168,6 +168,58 @@ type CosmosPaymentData struct {
 	AccountNumber string `json:"accountNumber,omitempty"`
 }
 
+type SolanaPaymentPayload struct {
+	Version   int               `json:"version"`
+	ChainID   string            `json:"chainId"`
+	Payment   SolanaPaymentData `json:"payment"`
+	Signature string            `json:"signature"`
+}
+
+type SolanaPaymentData struct {
+	Amount          string `json:"amount"`
+	Mint            string `json:"mint"`      // SPL token mint or "SOL" for native
+	Payer           string `json:"payer"`     // Base58 public key of sender
+	Recipient       string `json:"recipient"` // Base58 public key of receiver
+	TxBase64        string `json:"txBase64"`  // base64-encoded transaction bytes
+	RecentBlockhash string `json:"recentBlockhash,omitempty"`
+	PublicKey       string `json:"publicKey"` // sender’s public key (for verification)
+	FeePayer        string `json:"feePayer,omitempty"`
+	Memo            string `json:"memo,omitempty"`
+}
+
+// EthereumPermitPayload represents an x402-compatible payload
+// for Ethereum-based payments using EIP-712 + EIP-2612 / EIP-3009
+type EthereumPermitPayload struct {
+	Type      string            `json:"type"`            // "permit" | "transferWithAuthorization"
+	Token     string            `json:"token"`           // ERC20 contract address
+	Domain    EIP712Domain      `json:"domain"`          // EIP-712 domain info
+	Message   EIP712PermitMsg   `json:"message"`         // Typed message fields
+	Signature string            `json:"signature"`       // Hex or base64 signature
+	Extra     map[string]string `json:"extra,omitempty"` // Optional metadata
+}
+
+// EIP712Domain defines the domain separator per EIP-712
+type EIP712Domain struct {
+	Name              string `json:"name"`
+	Version           string `json:"version"`
+	ChainId           string `json:"chainId"`
+	VerifyingContract string `json:"verifyingContract"`
+}
+
+// EIP712PermitMsg covers both EIP-2612 and EIP-3009 message types
+type EIP712PermitMsg struct {
+	// Common fields
+	Owner       string `json:"owner,omitempty"`       // EIP-2612
+	Spender     string `json:"spender,omitempty"`     // EIP-2612
+	From        string `json:"from,omitempty"`        // EIP-3009
+	To          string `json:"to,omitempty"`          // EIP-3009
+	Value       string `json:"value"`                 // amount in wei (as string)
+	ValidAfter  string `json:"validAfter,omitempty"`  // EIP-3009
+	ValidBefore string `json:"validBefore,omitempty"` // EIP-3009
+	Nonce       string `json:"nonce"`                 // EIP-2612 or EIP-3009
+	Deadline    string `json:"deadline,omitempty"`    // EIP-2612
+}
+
 // TokenInfo contains information about the payment token
 type TokenInfo struct {
 	Standard    TokenStandard `json:"standard" validate:"required"`

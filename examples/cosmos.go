@@ -10,7 +10,6 @@ import (
 )
 
 func main() {
-	fmt.Println("started")
 	// Initialize the x402 library
 	x402Client := x402.NewWithDefaults()
 	defer x402Client.Close()
@@ -33,38 +32,6 @@ func main() {
 	if err := exampleSettlement(x402Client); err != nil {
 		log.Printf("Verification example failed: %v", err)
 	}
-
-	// // Example 2: Payment settlement
-	// fmt.Println("\n=== Example 2: Payment Settlement ===")
-	// if err := exampleSettlement(x402Client); err != nil {
-	// 	log.Printf("Settlement example failed: %v", err)
-	// }
-
-	// // Example 3: Batch operations
-	// fmt.Println("\n=== Example 3: Batch Operations ===")
-	// if err := exampleBatchOperations(x402Client); err != nil {
-	// 	log.Printf("Batch operations example failed: %v", err)
-	// }
-
-	// // Example 4: Multi-chain support
-	// fmt.Println("\n=== Example 4: Multi-chain Support ===")
-	// if err := exampleMultiChain(x402Client); err != nil {
-	// 	log.Printf("Multi-chain example failed: %v", err)
-	// }
-
-	// // Show supported networks
-	// fmt.Println("\n=== Supported Networks ===")
-	// networks := x402Client.GetSupportedNetworks()
-	// for _, network := range networks {
-	// 	fmt.Printf("- %s\n", network)
-	// }
-
-	// // Show version info
-	// fmt.Println("\n=== Version Information ===")
-	// version := x402.GetVersion()
-	// for key, value := range version {
-	// 	fmt.Printf("%s: %v\n", key, value)
-	// }
 }
 
 // addNetworkSupport configures network clients

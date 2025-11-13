@@ -29,6 +29,8 @@ type CosmosClient struct {
 	grpc          *grpc.ClientConn
 }
 
+var _ Client = (*CosmosClient)(nil)
+
 // NewCosmosClient creates a minimal Cosmos client
 func NewCosmosClient(network x402types.Network, rpcURL string, grpcUrl string, acceptedDenom string) (*CosmosClient, error) {
 	interfaceRegistry := codectypes.NewInterfaceRegistry()

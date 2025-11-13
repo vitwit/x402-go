@@ -16,8 +16,8 @@ type Verifier interface {
 
 // VerificationService manages payment verification across multiple networks
 type VerificationService struct {
-	evmClients    map[types.Network]*clients.MinimalEVMClient
-	solanaClients map[types.Network]*clients.MinimalSolanaClient
+	evmClients    map[types.Network]*clients.EVMClient
+	solanaClients map[types.Network]*clients.SolanaClient
 	cosmosClients map[types.Network]*clients.CosmosClient
 	timeout       time.Duration
 }
@@ -25,15 +25,15 @@ type VerificationService struct {
 // NewVerificationService creates a new verification service
 func NewVerificationService(timeout time.Duration) *VerificationService {
 	return &VerificationService{
-		evmClients:    make(map[types.Network]*clients.MinimalEVMClient),
-		solanaClients: make(map[types.Network]*clients.MinimalSolanaClient),
+		evmClients:    make(map[types.Network]*clients.EVMClient),
+		solanaClients: make(map[types.Network]*clients.SolanaClient),
 		cosmosClients: make(map[types.Network]*clients.CosmosClient),
 		timeout:       timeout,
 	}
 }
 
 // AddEVMClient adds an EVM client for a specific network
-func (s *VerificationService) AddEVMClient(network types.Network, client *clients.MinimalEVMClient) error {
+func (s *VerificationService) AddEVMClient(network types.Network, client *clients.EVMClient) error {
 	if !network.IsEVM() {
 		return &types.X402Error{
 			Code:    types.ErrUnsupportedNetwork,
@@ -46,7 +46,7 @@ func (s *VerificationService) AddEVMClient(network types.Network, client *client
 }
 
 // AddSolanaClient adds a Solana client for a specific network
-func (s *VerificationService) AddSolanaClient(network types.Network, client *clients.MinimalSolanaClient) error {
+func (s *VerificationService) AddSolanaClient(network types.Network, client *clients.SolanaClient) error {
 	if !network.IsSolana() {
 		return &types.X402Error{
 			Code:    types.ErrUnsupportedNetwork,
