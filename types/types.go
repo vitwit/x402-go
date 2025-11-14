@@ -119,10 +119,21 @@ type VerifyRequest struct {
 	X402Version int `json:"x402Version"`
 
 	// Encoded payment header from the client.
-	PaymentHeader string `json:"paymentHeader"`
+	PaymentPayload PaymentPayload `json:"paymentPayload"`
 
 	// Payment requirements being verified against.
 	PaymentRequirements PaymentRequirements `json:"paymentRequirements"`
+}
+
+type PaymentPayload struct {
+	// Version of the x402 payment protocol.
+	X402Version int `json:"x402Version"`
+
+	Scheme string `json:"scheme"`
+
+	Network string `json:"network"`
+
+	Payload string `json:"payload"`
 }
 
 // VerifyResponse represents the facilitator's verification result.
@@ -132,6 +143,8 @@ type VerifyResponse struct {
 
 	// Provides a reason if the payment is invalid, otherwise null.
 	InvalidReason string `json:"invalidReason"`
+
+	Payer string `json:"payer"`
 }
 
 // Validate checks that the VerifyRequest contains all required fields.
@@ -140,8 +153,8 @@ func (v *VerifyRequest) Validate() error {
 		return fmt.Errorf("x402Version must be greater than 0")
 	}
 
-	if v.PaymentHeader == "" {
-		return fmt.Errorf("paymentHeader is required")
+	if v.PaymentPayload.Payload == "" {
+		return fmt.Errorf("PaymentPayload is required")
 	}
 
 	return v.PaymentRequirements.Validate()
@@ -190,12 +203,18 @@ type SolanaPaymentData struct {
 // EthereumPermitPayload represents an x402-compatible payload
 // for Ethereum-based payments using EIP-712 + EIP-2612 / EIP-3009
 type EthereumPermitPayload struct {
-	Type      string            `json:"type"`            // "permit" | "transferWithAuthorization"
-	Token     string            `json:"token"`           // ERC20 contract address
-	Domain    EIP712Domain      `json:"domain"`          // EIP-712 domain info
-	Message   EIP712PermitMsg   `json:"message"`         // Typed message fields
-	Signature string            `json:"signature"`       // Hex or base64 signature
-	Extra     map[string]string `json:"extra,omitempty"` // Optional metadata
+	Authorization EVMAuthorization  `json:"authorization"`
+	Signature     string            `json:"signature"`       // Hex or base64 signature
+	Extra         map[string]string `json:"extra,omitempty"` // Optional metadata
+}
+
+type EVMAuthorization struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Value       string `json:"value"`
+	ValidAfter  int    `json:"validAfter"`
+	ValidBefore int    `json:"validBefore"`
+	Nonce       string `json:"nonce"`
 }
 
 // EIP712Domain defines the domain separator per EIP-712

@@ -10,8 +10,10 @@ import (
 	binary "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/system"
+	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/shopspring/decimal"
+
 	x402types "github.com/vitwit/x402/types"
 )
 
@@ -39,7 +41,7 @@ func (c *SolanaClient) VerifyPayment(
 	payload *x402types.VerifyRequest,
 ) (*x402types.VerificationResult, error) {
 
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentHeader)
+	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}
@@ -70,21 +72,14 @@ func (c *SolanaClient) VerifyPayment(
 	}
 
 	for _, inst := range tx.Message.Instructions {
-
 		prog := tx.Message.AccountKeys[inst.ProgramIDIndex]
-		if prog.Equals(solana.SystemProgramID) {
-			// Build account metas from the instruction
-			accountMetas := make([]*solana.AccountMeta, len(inst.Accounts))
-			for i, accIdx := range inst.Accounts {
-				pub := tx.Message.AccountKeys[accIdx]
-				writable, err := tx.Message.IsWritable(pub)
-				if err != nil {
-					return &x402types.VerificationResult{
-						IsValid:       false,
-						InvalidReason: fmt.Sprintf("failed to decode transaction: %v", err),
-					}, nil
-				}
 
+		// Native SOL transfer
+		if prog.Equals(solana.SystemProgramID) {
+			accountMetas := make([]*solana.AccountMeta, len(inst.Accounts))
+			for i, idx := range inst.Accounts {
+				pub := tx.Message.AccountKeys[idx]
+				writable, _ := tx.Message.IsWritable(pub)
 				accountMetas[i] = &solana.AccountMeta{
 					PublicKey:  pub,
 					IsSigner:   tx.Message.IsSigner(pub),
@@ -110,13 +105,52 @@ func (c *SolanaClient) VerifyPayment(
 								Sender:        from.String(),
 								Confirmations: 1,
 							}, nil
-						} else {
-							// TODO: return amount not enough error
 						}
 					}
 				}
-			} else {
-				// TODO: handle decode instruction error
+			}
+		}
+
+		// SPL Token transfer
+		if prog.Equals(token.ProgramID) {
+			accountMetas := make([]*solana.AccountMeta, len(inst.Accounts))
+			for i, idx := range inst.Accounts {
+				pub := tx.Message.AccountKeys[idx]
+				writable, _ := tx.Message.IsWritable(pub)
+				accountMetas[i] = &solana.AccountMeta{
+					PublicKey:  pub,
+					IsSigner:   tx.Message.IsSigner(pub),
+					IsWritable: writable,
+				}
+			}
+
+			splInst, err := token.DecodeInstruction(accountMetas, inst.Data)
+			if err != nil {
+				continue
+			}
+
+			switch t := splInst.Impl.(type) {
+			case *token.Transfer:
+				from := tx.Message.AccountKeys[inst.Accounts[0]]
+				to := tx.Message.AccountKeys[inst.Accounts[1]]
+				mint := tx.Message.AccountKeys[inst.Accounts[2]] // token mint
+
+				if to.Equals(solana.MustPublicKeyFromBase58(payload.PaymentRequirements.PayTo)) &&
+					mint.Equals(solana.MustPublicKeyFromBase58(payload.PaymentRequirements.Asset)) {
+
+					amount := decimal.NewFromInt(int64(*t.Amount))
+					reqAmt, _ := decimal.NewFromString(payload.PaymentRequirements.MaxAmountRequired)
+					if amount.GreaterThanOrEqual(reqAmt) {
+						return &x402types.VerificationResult{
+							IsValid:       true,
+							Amount:        &amount,
+							Token:         mint.String(),
+							Recipient:     to.String(),
+							Sender:        from.String(),
+							Confirmations: 1,
+						}, nil
+					}
+				}
 			}
 		}
 	}
@@ -133,7 +167,7 @@ func (s *SolanaClient) SettlePayment(
 	payload *x402types.VerifyRequest,
 ) (*x402types.SettlementResult, error) {
 
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentHeader)
+	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}

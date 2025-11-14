@@ -65,9 +65,14 @@ func (x *X402) AddNetwork(network types.Network, config types.ClientConfig) erro
 	case network.IsCosmos():
 		return x.addCosmosNetwork(network, config)
 	default:
+		fmt.Println("==============================================")
+		fmt.Sprintf("unsupported network: %s", network.String())
+		fmt.Sprintf("unsupported network: %s", network)
+		fmt.Sprintf("unsupported network: %s", network)
+		fmt.Println("==============================================")
 		return &types.X402Error{
 			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("unsupported network: %s", network),
+			Message: fmt.Sprintf("unsupported network: %s", network.String()),
 		}
 	}
 }

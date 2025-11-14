@@ -70,7 +70,7 @@ func (c *CosmosClient) VerifyPayment(
 		}, nil
 	}
 
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentHeader)
+	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}
@@ -167,7 +167,7 @@ func (c *CosmosClient) SettlePayment(
 		}, nil
 	}
 
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentHeader)
+	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}
