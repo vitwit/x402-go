@@ -123,6 +123,8 @@ type VerifyRequest struct {
 
 	// Payment requirements being verified against.
 	PaymentRequirements PaymentRequirements `json:"paymentRequirements"`
+
+	Network string `json:"network"`
 }
 
 type PaymentPayload struct {
@@ -182,10 +184,7 @@ type CosmosPaymentData struct {
 }
 
 type SolanaPaymentPayload struct {
-	Version   int               `json:"version"`
-	ChainID   string            `json:"chainId"`
-	Payment   SolanaPaymentData `json:"payment"`
-	Signature string            `json:"signature"`
+	Transaction string `json:"transaction"`
 }
 
 type SolanaPaymentData struct {
@@ -198,6 +197,42 @@ type SolanaPaymentData struct {
 	PublicKey       string `json:"publicKey"` // sender’s public key (for verification)
 	FeePayer        string `json:"feePayer,omitempty"`
 	Memo            string `json:"memo,omitempty"`
+}
+
+// After decoding PaymentPayload.Payload (string → base64 → json)
+type EvmPaymentPayload struct {
+	Type string `json:"type"` // "raw_tx", "eip3009", "eip2612"
+
+	RawTx          string                `json:"rawTx,omitempty"`
+	EIP3009Payload *EIP3009Payload       `json:"eip3009,omitempty"`
+	EIP2612Permit  *EIP2612PermitPayload `json:"eip2612,omitempty"`
+}
+
+type EIP3009Payload struct {
+	Signature     string               `json:"signature"` // The 65-byte ECDSA signature (v,r,s)
+	Authorization EIP3009Authorization `json:"authorization"`
+}
+
+type EIP3009Authorization struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Value       string `json:"value"`       // uint256
+	ValidAfter  string `json:"validAfter"`  // uint256 timestamp
+	ValidBefore string `json:"validBefore"` // uint256 timestamp
+	Nonce       string `json:"nonce"`       // bytes32
+}
+
+type EIP2612PermitPayload struct {
+	Owner     string `json:"owner"`
+	Spender   string `json:"spender"`
+	Value     string `json:"value"` // uint256 in string
+	Nonce     string `json:"nonce"`
+	Deadline  string `json:"deadline"`  // uint256
+	Signature string `json:"signature"` // 0x + r||s||v
+}
+
+type EVMRawTxPayload struct {
+	RawTx string `json:"rawTx"`
 }
 
 // EthereumPermitPayload represents an x402-compatible payload
@@ -278,16 +313,16 @@ type SupportedPaymentKind struct {
 
 // VerificationResult contains the result of payment verification
 type VerificationResult struct {
-	IsValid       bool             `json:"isValid"`
-	InvalidReason string           `josn:"invalidReason"`
-	Amount        *decimal.Decimal `json:"amount,omitempty"`
-	Token         string           `json:"token,omitempty"`
-	Recipient     string           `json:"recipient,omitempty"`
-	Sender        string           `json:"sender,omitempty"`
-	Timestamp     *time.Time       `json:"timestamp,omitempty"`
-	Confirmations int              `json:"confirmations,omitempty"`
-	Error         string           `json:"error,omitempty"`
-	Extra         ExtraData        `json:"extra,omitempty"`
+	IsValid       bool       `json:"isValid"`
+	InvalidReason string     `josn:"invalidReason"`
+	Amount        string     `json:"amount,omitempty"`
+	Token         string     `json:"token,omitempty"`
+	Recipient     string     `json:"recipient,omitempty"`
+	Sender        string     `json:"sender,omitempty"`
+	Timestamp     *time.Time `json:"timestamp,omitempty"`
+	Confirmations int        `json:"confirmations,omitempty"`
+	Error         string     `json:"error,omitempty"`
+	Extra         ExtraData  `json:"extra,omitempty"`
 }
 
 // PriorityLevel represents transaction priority
@@ -321,6 +356,7 @@ type ClientConfig struct {
 	Headers       map[string]string `json:"headers,omitempty"`
 	Extra         ExtraData         `json:"extra,omitempty"`
 	AcceptedDenom string            `json:"acceptedDenom"`
+	HexSeed       string            `json:"hexSeed"`
 }
 
 // X402Config contains global configuration for the x402 library

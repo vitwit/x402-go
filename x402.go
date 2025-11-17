@@ -97,7 +97,7 @@ func (x *X402) addEVMNetwork(network types.Network, config types.ClientConfig) e
 
 // addSolanaNetwork adds a Solana network client
 func (x *X402) addSolanaNetwork(network types.Network, config types.ClientConfig) error {
-	client, err := clients.NewSolanaClient(network, config.RPCUrl)
+	client, err := clients.NewSolanaClientWithFeePayer(network, config.RPCUrl, config.HexSeed)
 	if err != nil {
 		return fmt.Errorf("failed to create Solana client for %s: %w", network, err)
 	}

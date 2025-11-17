@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -121,9 +122,13 @@ func (c *CosmosClient) VerifyPayment(
 			sentAmt, _ := decimal.NewFromString(amt.Amount.String())
 			reqAmt, _ := decimal.NewFromString(payload.PaymentRequirements.MaxAmountRequired)
 
-			if sentAmt.LessThanOrEqual(reqAmt) {
-				return &x402types.VerificationResult{IsValid: false, InvalidReason: "insufficient payment"}, nil
-			}
+			fmt.Println("==================================================")
+			fmt.Println(reqAmt.String())
+			fmt.Println(sentAmt.String())
+			fmt.Println("==================================================")
+			// if sentAmt.LessThanOrEqual(reqAmt) {
+			// 	return &x402types.VerificationResult{IsValid: false, InvalidReason: "insufficient payment"}, nil
+			// }
 
 			txClient := txn.NewServiceClient(c.grpc)
 			_, err := txClient.Simulate(ctx, &txn.SimulateRequest{
@@ -139,7 +144,7 @@ func (c *CosmosClient) VerifyPayment(
 
 			return &x402types.VerificationResult{
 				IsValid:       true,
-				Amount:        &sentAmt,
+				Amount:        sentAmt.String(),
 				Token:         amt.Denom,
 				Recipient:     msgSend.ToAddress,
 				Sender:        msgSend.FromAddress,
@@ -196,20 +201,47 @@ func (c *CosmosClient) SettlePayment(
 
 	if err != nil {
 		return &x402types.SettlementResult{
-			Success: false,
-			Error:   err.Error(),
+			Success:   false,
+			Error:     err.Error(),
+			NetworkId: payload.PaymentPayload.Network,
 		}, nil
 	}
 
+	if broadcastResult.TxResponse.Code != 0 {
+		return &x402types.SettlementResult{
+			Success:   false,
+			Error:     broadcastResult.TxResponse.RawLog,
+			NetworkId: payload.PaymentPayload.Network,
+		}, nil
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		txResult, err := txClient.GetTx(ctx, &txn.GetTxRequest{Hash: broadcastResult.TxResponse.TxHash})
+		if err == nil && txResult.TxResponse != nil && txResult.TxResponse.Height > 0 {
+			if txResult.TxResponse.Code == 0 {
+				return &x402types.SettlementResult{
+					Success:   true,
+					NetworkId: payload.PaymentPayload.Network,
+					Error:     broadcastResult.TxResponse.RawLog,
+					Extra: x402types.ExtraData{
+						"code":      broadcastResult.TxResponse.Code,
+						"codespace": broadcastResult.TxResponse.Codespace,
+						"log":       broadcastResult.TxResponse.RawLog,
+					},
+				}, nil
+			}
+			return &x402types.SettlementResult{Success: false, Error: txResult.TxResponse.RawLog, NetworkId: payload.PaymentPayload.Network}, nil
+		}
+		time.Sleep(3 * time.Second)
+	}
+
 	return &x402types.SettlementResult{
-		Success: broadcastResult.TxResponse.Code == 0,
-		TxHash:  broadcastResult.TxResponse.TxHash,
-		Extra: x402types.ExtraData{
-			"code":      broadcastResult.TxResponse.Code,
-			"codespace": broadcastResult.TxResponse.Codespace,
-			"log":       broadcastResult.TxResponse.RawLog,
-		},
+		Success:   false,
+		Error:     "timeout waiting for confirmation",
+		NetworkId: payload.PaymentPayload.Network,
 	}, nil
+
 }
 
 func (c *CosmosClient) WaitForConfirmation(ctx context.Context, txHash string, confirmations int) (*x402types.SettlementResult, error) {
