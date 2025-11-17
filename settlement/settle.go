@@ -17,7 +17,8 @@ type Settler interface {
 
 // SettlementService manages payment settlement across multiple networks
 type SettlementService struct {
-	evmClients    map[types.Network]*clients.EVMClient
+	evmClients map[types.Network]*clients.EVMClient
+	// eth           map[types.Network]*clients.EthereumClient
 	solanaClients map[types.Network]*clients.SolanaClient
 	cosmosClients map[types.Network]*clients.CosmosClient
 	timeout       time.Duration
@@ -27,7 +28,8 @@ type SettlementService struct {
 // NewSettlementService creates a new settlement service
 func NewSettlementService(timeout time.Duration) *SettlementService {
 	return &SettlementService{
-		evmClients:    make(map[types.Network]*clients.EVMClient),
+		evmClients: make(map[types.Network]*clients.EVMClient),
+		// eth:           make(map[types.Network]*clients.EthereumClient),
 		solanaClients: make(map[types.Network]*clients.SolanaClient),
 		cosmosClients: make(map[types.Network]*clients.CosmosClient),
 		timeout:       timeout,
@@ -47,6 +49,18 @@ func (s *SettlementService) AddEVMClient(network types.Network, client *clients.
 	s.evmClients[network] = client
 	return nil
 }
+
+// func (s *SettlementService) AddETHClient(network types.Network, client *clients.EthereumClient) error {
+// 	if !network.IsEVM() {
+// 		return &types.X402Error{
+// 			Code:    types.ErrUnsupportedNetwork,
+// 			Message: fmt.Sprintf("network %s is not an EVM network", network),
+// 		}
+// 	}
+
+// 	s.eth[network] = client
+// 	return nil
+// }
 
 // AddSolanaClient adds a Solana client for a specific network
 func (s *SettlementService) AddSolanaClient(network types.Network, client *clients.SolanaClient) error {
@@ -102,6 +116,7 @@ func (s *SettlementService) Settle(
 		return s.settleSolanaPayment(settleCtx, payload)
 	case network.IsCosmos():
 		return s.settleCosmosPayment(settleCtx, payload)
+
 	default:
 		return &types.SettlementResult{
 			Success:   false,
@@ -116,25 +131,47 @@ func (s *SettlementService) settleEVMPayment(
 	ctx context.Context,
 	request *types.VerifyRequest,
 ) (*types.SettlementResult, error) {
+
 	network := types.Network(request.PaymentRequirements.Network)
 
-	client, exists := s.evmClients[network]
-	if !exists {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   fmt.Sprintf("no EVM client configured for network %s", network),
-		}, nil
+	//
+	// 1. Priority: EthereumClient (EIP-3009)
+	//
+	// if ethClient, ok := s.eth[network]; ok {
+	// 	result, err := ethClient.SettlePayment(ctx, request)
+	// 	if err != nil {
+	// 		return &types.SettlementResult{
+	// 			Success:   false,
+	// 			Error:     err.Error(),
+	// 			NetworkId: request.PaymentRequirements.Network,
+	// 		}, nil
+	// 	}
+	// 	return result, nil
+	// }
+
+	//
+	// 2. Fallback: Generic EVM client
+	//
+	if evmClient, ok := s.evmClients[network]; ok {
+		result, err := evmClient.SettlePayment(ctx, request)
+		if err != nil {
+			return &types.SettlementResult{
+				Success:   false,
+				Error:     err.Error(),
+				NetworkId: request.PaymentRequirements.Network,
+			}, nil
+		}
+		return result, nil
 	}
 
-	result, err := client.SettlePayment(ctx, request)
-	if err != nil {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return result, nil
+	//
+	// 3. No EVM client found
+	//
+	return &types.SettlementResult{
+		Success:   false,
+		Error:     fmt.Sprintf("no settlement client found for network %s", network),
+		NetworkId: request.PaymentRequirements.Network,
+	}, nil
 }
 
 // settleSolanaPayment settles a Solana payment

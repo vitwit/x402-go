@@ -303,6 +303,7 @@ type ClientConfig struct {
 	Headers       map[string]string `json:"headers,omitempty"`
 	Extra         ExtraData         `json:"extra,omitempty"`
 	AcceptedDenom string            `json:"acceptedDenom"`
+	PrivHex       string            `json:"privHex,omitempty"`
 }
 
 // X402Config contains global configuration for the x402 library

@@ -16,7 +16,9 @@ type Verifier interface {
 
 // VerificationService manages payment verification across multiple networks
 type VerificationService struct {
-	evmClients    map[types.Network]*clients.EVMClient
+	evmClients map[types.Network]*clients.EVMClient
+	// ethClients map[types.Network]*clients.EthereumClient
+
 	solanaClients map[types.Network]*clients.SolanaClient
 	cosmosClients map[types.Network]*clients.CosmosClient
 	timeout       time.Duration
@@ -25,7 +27,8 @@ type VerificationService struct {
 // NewVerificationService creates a new verification service
 func NewVerificationService(timeout time.Duration) *VerificationService {
 	return &VerificationService{
-		evmClients:    make(map[types.Network]*clients.EVMClient),
+		evmClients: make(map[types.Network]*clients.EVMClient),
+		// ethClients:    make(map[types.Network]*clients.EthereumClient),
 		solanaClients: make(map[types.Network]*clients.SolanaClient),
 		cosmosClients: make(map[types.Network]*clients.CosmosClient),
 		timeout:       timeout,
@@ -44,6 +47,18 @@ func (s *VerificationService) AddEVMClient(network types.Network, client *client
 	s.evmClients[network] = client
 	return nil
 }
+
+// func (s *VerificationService) AddEthClient(network types.Network, client *clients.EthereumClient) error {
+// 	if !network.IsEVM() {
+// 		return &types.X402Error{
+// 			Code:    types.ErrUnsupportedNetwork,
+// 			Message: fmt.Sprintf("network %s is not an EVM network", network),
+// 		}
+// 	}
+
+// 	s.ethClients[network] = client
+// 	return nil
+// }
 
 // AddSolanaClient adds a Solana client for a specific network
 func (s *VerificationService) AddSolanaClient(network types.Network, client *clients.SolanaClient) error {
@@ -113,25 +128,44 @@ func (s *VerificationService) verifyEVMPayment(
 	ctx context.Context,
 	payload *types.VerifyRequest,
 ) (*types.VerificationResult, error) {
+
 	network := types.Network(payload.PaymentRequirements.Network)
 
-	client, exists := s.evmClients[network]
-	if !exists {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("no EVM client configured for network %s", network),
-		}, nil
+	//
+	// 1. First priority — EthereumClient (EIP-3009)
+	//
+	// if ethClient, ok := s.ethClients[network]; ok {
+	// 	result, err := ethClient.VerifyPayment(ctx, payload)
+	// 	if err != nil {
+	// 		return &types.VerificationResult{
+	// 			IsValid:       false,
+	// 			InvalidReason: fmt.Sprintf("Ethereum verification error: %v", err),
+	// 		}, nil
+	// 	}
+	// 	return result, nil
+	// }
+
+	//
+	// 2. Fallback — Standard EVM client
+	//
+	if evmClient, ok := s.evmClients[network]; ok {
+		result, err := evmClient.VerifyPayment(ctx, payload)
+		if err != nil {
+			return &types.VerificationResult{
+				IsValid:       false,
+				InvalidReason: fmt.Sprintf("EVM verification error: %v", err),
+			}, nil
+		}
+		return result, nil
 	}
 
-	result, err := client.VerifyPayment(ctx, payload)
-	if err != nil {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("EVM verification error: %v", err),
-		}, nil
-	}
-
-	return result, nil
+	//
+	// 3. No EVM verification available
+	//
+	return &types.VerificationResult{
+		IsValid:       false,
+		InvalidReason: fmt.Sprintf("no EVM or ETH client configured for network %s", network),
+	}, nil
 }
 
 // verifySolanaPayment verifies a Solana payment

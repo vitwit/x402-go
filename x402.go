@@ -5,6 +5,7 @@ package x402
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -74,7 +75,11 @@ func (x *X402) AddNetwork(network types.Network, config types.ClientConfig) erro
 
 // addEVMNetwork adds an EVM network client
 func (x *X402) addEVMNetwork(network types.Network, config types.ClientConfig) error {
-	client, err := clients.NewEVMClient(network, config.RPCUrl, config.AcceptedDenom)
+	chainId, ok := new(big.Int).SetString(config.ChainID, 10)
+	if !ok {
+		panic("invalid big int: " + config.ChainID)
+	}
+	client, err := clients.NewEVMClient(config.RPCUrl, chainId, config.AcceptedDenom, config.Network, config.PrivHex)
 	if err != nil {
 		return fmt.Errorf("failed to create EVM client for %s: %w", network, err)
 	}
