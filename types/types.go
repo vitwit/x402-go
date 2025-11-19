@@ -323,6 +323,7 @@ type VerificationResult struct {
 	Confirmations int        `json:"confirmations,omitempty"`
 	Error         string     `json:"error,omitempty"`
 	Extra         ExtraData  `json:"extra,omitempty"`
+	Payer         string     `json:"payer,omitempty"`
 }
 
 // PriorityLevel represents transaction priority
