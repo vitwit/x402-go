@@ -255,8 +255,6 @@ func (c *SolanaClient) VerifyPayment(
 		return &x402types.VerificationResult{IsValid: false, InvalidReason: err.Error()}, nil
 	}
 
-	fmt.Println(payload)
-
 	// 1) Decode top-level payment payload wrapper (base64 JSON => wrapper struct)
 	wrapper, err := decodeTopLevelPaymentPayload(payload.PaymentPayload.Payload)
 	if err != nil {
