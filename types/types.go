@@ -435,10 +435,6 @@ func (n Network) IsCosmos() bool {
 	return n == NetworkCosmosHub || n == NetworkCosmosTestnet || n == NetworkCosmosLocal
 }
 
-func (n Network) IsTestnet() bool {
-	return n == NetworkPolygonAmoy || n == NetworkBaseSepolia || n == NetworkSolanaDevnet || n == NetworkCosmosTestnet
-}
-
 func (n Network) String() string {
 	return string(n)
 }

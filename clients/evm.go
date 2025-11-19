@@ -1,4 +1,3 @@
-// eip712_packed.go
 package clients
 
 import (

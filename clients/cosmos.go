@@ -119,19 +119,18 @@ func (c *CosmosClient) VerifyPayment(
 	// Check amount and denom
 	for _, amt := range msgSend.Amount {
 		if amt.Denom == c.AcceptedDenom {
-			sentAmt, _ := decimal.NewFromString(amt.Amount.String())
-			reqAmt, _ := decimal.NewFromString(payload.PaymentRequirements.MaxAmountRequired)
+			sentAmt, err := decimal.NewFromString(amt.Amount.String())
+			if err != nil {
+				return nil, err
+			}
+			// reqAmt, _ := decimal.NewFromString(payload.PaymentRequirements.MaxAmountRequired)
 
-			fmt.Println("==================================================")
-			fmt.Println(reqAmt.String())
-			fmt.Println(sentAmt.String())
-			fmt.Println("==================================================")
 			// if sentAmt.LessThanOrEqual(reqAmt) {
 			// 	return &x402types.VerificationResult{IsValid: false, InvalidReason: "insufficient payment"}, nil
 			// }
 
 			txClient := txn.NewServiceClient(c.grpc)
-			_, err := txClient.Simulate(ctx, &txn.SimulateRequest{
+			_, err = txClient.Simulate(ctx, &txn.SimulateRequest{
 				TxBytes: txBytes,
 			})
 
@@ -148,7 +147,7 @@ func (c *CosmosClient) VerifyPayment(
 				Token:         amt.Denom,
 				Recipient:     msgSend.ToAddress,
 				Sender:        msgSend.FromAddress,
-				Confirmations: 1,
+				Confirmations: 0,
 			}, nil
 		}
 	}

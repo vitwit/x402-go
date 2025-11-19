@@ -260,20 +260,17 @@ func (c *SolanaClient) VerifyPayment(
 	// 1) Decode top-level payment payload wrapper (base64 JSON => wrapper struct)
 	wrapper, err := decodeTopLevelPaymentPayload(payload.PaymentPayload.Payload)
 	if err != nil {
-		fmt.Println("=========wrapper==========================")
 		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidExactSvmPayload}, nil
 	}
 
 	// 2) Decode transaction bytes (base64 inside wrapper)
 	txBytes, err := base64.StdEncoding.DecodeString(wrapper.Transaction)
 	if err != nil {
-		fmt.Println("=========txBytes==========================")
 		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidExactSvmPayload}, nil
 	}
 
 	tx, err := solana.TransactionFromDecoder(bin.NewBinDecoder(txBytes))
 	if err != nil {
-		fmt.Println("=========tx==========================")
 		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidExactSvmPayload}, nil
 	}
 
@@ -282,7 +279,6 @@ func (c *SolanaClient) VerifyPayment(
 	// 3) Decompile message and resolve lookup tables into "msg" and "allKeys"
 	msg, allKeys, err := c.decompileMessageWithLookups(ctx, *tx)
 	if err != nil {
-		fmt.Println("=========msg==========================")
 		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidExactSvmPayload}, nil
 	}
 

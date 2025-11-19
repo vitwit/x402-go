@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -78,8 +77,7 @@ func NewEVMClient(network x402types.Network, rpcURL string, privKeyHex string) (
 
 // Close implements Client.
 func (e *EVMClient) Close() {
-	// panic("unimplemented")
-	return
+	e.client.Close()
 
 }
 
@@ -89,7 +87,6 @@ func (e *EVMClient) GetNetwork() types.Network {
 }
 
 // SettlePayment implements Client.
-
 func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequest) (*types.SettlementResult, error) {
 	// 1) Re-verify the payment first (signature + basic checks + simulation)
 	ver, err := e.VerifyPayment(ctx, payload)
@@ -236,23 +233,6 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	}, nil
 }
 
-func leftPadBig(n *big.Int, size int) []byte {
-	b := n.Bytes()
-	if len(b) >= size {
-		return b
-	}
-	p := make([]byte, size)
-	copy(p[size-len(b):], b)
-	return p
-}
-
-func leftPadAddress(addr string) []byte {
-	a := common.HexToAddress(addr).Bytes()
-	p := make([]byte, 32)
-	copy(p[12:], a) // left-pad 12 bytes
-	return p
-}
-
 var AuthorizationTypes = map[string][]TypeEntry{
 	"EIP712Domain": {
 		{Name: "name", Type: "string"},
@@ -270,43 +250,12 @@ var AuthorizationTypes = map[string][]TypeEntry{
 	},
 }
 
-func mustBig(s string) *big.Int {
-	n, ok := new(big.Int).SetString(s, 10)
-	if !ok {
-		return big.NewInt(0)
-	}
-	return n
-}
-
-func mustBytes32(hexStr string) [32]byte {
-	var out [32]byte
-
-	hexStr = strings.TrimPrefix(hexStr, "0x")
-	b, err := hex.DecodeString(hexStr)
-	if err != nil {
-		return out
-	}
-	if len(b) > 32 {
-		// truncate left (should never happen for EIP3009, but safe)
-		copy(out[:], b[len(b)-32:])
-		return out
-	}
-
-	// left-pad to 32 bytes
-	copy(out[32-len(b):], b)
-	return out
-}
-
 // VerifyPayment implements Client.
 // VerifyPayment verifies an EVM-style x402 payment (EIP-2612 or EIP-3009).
 func (e *EVMClient) VerifyPayment(
 	ctx context.Context,
 	payload *x402types.VerifyRequest,
 ) (*x402types.VerificationResult, error) {
-
-	fmt.Println("==============================================")
-	fmt.Println(payload)
-	fmt.Println("==============================================")
 
 	if e.rpcURL == "" {
 		return &x402types.VerificationResult{
@@ -329,6 +278,7 @@ func (e *EVMClient) VerifyPayment(
 	// -------------------------------------------------------------
 	// 2. Parse EIP3009 payload
 	// -------------------------------------------------------------
+
 	pt, parsed, err := ParseEvmPaymentPayload(data)
 	if err != nil {
 		return nil, fmt.Errorf("invalid evm payload: %w", err)
@@ -358,14 +308,6 @@ func (e *EVMClient) VerifyPayment(
 			},
 		}, nil
 	}
-
-	// TODO: validate supported networks
-	// if payload.PaymentPayload.Network != "base-sepolia" {
-	// 	return &x402types.VerificationResult{
-	// 		IsValid:       false,
-	// 		InvalidReason: "invalid_network",
-	// 	}, nil
-	// }
 
 	// -------------------------------------------------------------
 	// 5. Verify EIP-712 signature
@@ -592,75 +534,6 @@ func normalizeSignature(sigHex string) ([]byte, error) {
 	return nil, fmt.Errorf("unexpected signature length %d", len(b))
 }
 
-func SplitSignature(sigHex string) (uint8, [32]byte, [32]byte, error) {
-	var r [32]byte
-	var s [32]byte
-
-	b, err := hex.DecodeString(strings.TrimPrefix(sigHex, "0x"))
-	if err != nil {
-		return 0, r, s, fmt.Errorf("invalid hex signature: %w", err)
-	}
-	if len(b) != 65 {
-		return 0, r, s, fmt.Errorf("invalid signature length: %d", len(b))
-	}
-
-	copy(r[:], b[0:32])
-	copy(s[:], b[32:64])
-	v := b[64]
-
-	// Normalize v to 0 or 1
-	if v >= 27 {
-		v -= 27
-	}
-
-	return v, r, s, nil
-}
-
-func summaryFor(v interface{}) interface{} {
-	switch x := v.(type) {
-	case *big.Int:
-		return x.String()
-	case common.Address:
-		return x.Hex()
-	case [32]byte:
-		return fmt.Sprintf("bytes32(%d)", len(x))
-	default:
-		return x
-	}
-}
-
-func structToMap(v interface{}) (map[string]interface{}, error) {
-	out := make(map[string]interface{})
-
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
-		if rv.IsNil() {
-			return nil, fmt.Errorf("nil pointer passed to structToMap")
-		}
-		rv = rv.Elem()
-	}
-	rt := rv.Type()
-	if rv.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("structToMap expects a struct, got %T", v)
-	}
-
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-		// Use json tag if present, otherwise lowercase the field name
-		jsonTag := field.Tag.Get("json")
-		var key string
-		if jsonTag != "" {
-			key = strings.Split(jsonTag, ",")[0]
-		}
-		if key == "" {
-			key = strings.ToLower(field.Name[:1]) + field.Name[1:]
-		}
-		out[key] = rv.Field(i).Interface()
-	}
-
-	return out, nil
-}
-
 func mustABIType(t string) abi.Type {
 	parsed, err := abi.NewType(t, "", nil)
 	if err != nil {
@@ -669,103 +542,7 @@ func mustABIType(t string) abi.Type {
 	return parsed
 }
 
-func mustResolveABIType(t string) (abi.Type, error) {
-	switch t {
-	case "address":
-		return abi.NewType("address", "", nil)
-	case "uint256":
-		return abi.NewType("uint256", "", nil)
-	case "bytes32":
-		return abi.NewType("bytes32", "", nil)
-	case "string":
-		// EIP-712 strings must be encoded as bytes32 (keccak256 hash)
-		return abi.NewType("bytes32", "", nil)
-	}
-	return abi.Type{}, fmt.Errorf("unsupported EIP712 type: %s", t)
-}
-
-func normalizeValue(typeName string, v interface{}) (interface{}, error) {
-	switch typeName {
-
-	case "address":
-		switch vv := v.(type) {
-		case string:
-			return common.HexToAddress(vv), nil
-		case common.Address:
-			return vv, nil
-		default:
-			return nil, fmt.Errorf("invalid address: %v", v)
-		}
-
-	case "uint256":
-		switch vv := v.(type) {
-		case string:
-			bi, ok := new(big.Int).SetString(vv, 10)
-			if !ok {
-				return nil, fmt.Errorf("invalid uint256 decimal: %v", v)
-			}
-			return bi, nil
-		case *big.Int:
-			return vv, nil
-		case int:
-			return big.NewInt(int64(vv)), nil
-		default:
-			return nil, fmt.Errorf("invalid uint256: %v (%T)", v, v)
-		}
-
-	case "bytes32":
-		var out [32]byte
-		switch vv := v.(type) {
-		case string:
-			b := common.FromHex(vv)
-			if len(b) > 32 {
-				return nil, fmt.Errorf("bytes32 too long")
-			}
-			copy(out[32-len(b):], b)
-			return out, nil
-		case []byte:
-			if len(vv) > 32 {
-				return nil, fmt.Errorf("bytes32 too long")
-			}
-			copy(out[32-len(vv):], vv)
-			return out, nil
-		default:
-			return nil, fmt.Errorf("invalid bytes32: %v", v)
-		}
-
-	case "string":
-		// EIP-712: strings are KECCAK256(bytes(string)) → 32-byte value
-		s, ok := v.(string)
-		if !ok {
-			return nil, fmt.Errorf("invalid string: %v", v)
-		}
-		hash := crypto.Keccak256([]byte(s))
-		var out [32]byte
-		copy(out[:], hash)
-		return out, nil
-	}
-
-	return nil, fmt.Errorf("unsupported type: %s", typeName)
-}
-
-func HexToBytes32(hexStr string) ([32]byte, error) {
-	var out [32]byte
-
-	b, err := hex.DecodeString(strings.TrimPrefix(hexStr, "0x"))
-	if err != nil {
-		return out, err
-	}
-	if len(b) != 32 {
-		return out, fmt.Errorf("invalid nonce length: %d", len(b))
-	}
-
-	copy(out[:], b)
-	return out, nil
-}
-
 func ParseEvmPaymentPayload(raw []byte) (string, interface{}, error) {
-
-	fmt.Println(string(raw))
 	// Try EIP-3009
 	if bytes.Contains(raw, []byte(`"authorization"`)) &&
 		bytes.Contains(raw, []byte(`"signature"`)) {
