@@ -323,6 +323,7 @@ type VerificationResult struct {
 	Confirmations int        `json:"confirmations,omitempty"`
 	Error         string     `json:"error,omitempty"`
 	Extra         ExtraData  `json:"extra,omitempty"`
+	Payer         string     `json:"payer,omitempty"`
 }
 
 // PriorityLevel represents transaction priority
@@ -432,10 +433,6 @@ func (n Network) IsSolana() bool {
 
 func (n Network) IsCosmos() bool {
 	return n == NetworkCosmosHub || n == NetworkCosmosTestnet || n == NetworkCosmosLocal
-}
-
-func (n Network) IsTestnet() bool {
-	return n == NetworkPolygonAmoy || n == NetworkBaseSepolia || n == NetworkSolanaDevnet || n == NetworkCosmosTestnet
 }
 
 func (n Network) String() string {

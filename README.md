@@ -36,8 +36,7 @@ The x402 Go library provides a comprehensive solution for building payment facil
 
 - **ERC20**: Ethereum-compatible token standard
 - **SPL**: Solana Program Library tokens
-- **CW20**: CosmWasm token standard
-- **Native**: Native blockchain tokens (ETH, SOL, ATOM, etc.)
+- **Native**: Native Cosmos blockchain tokens
 
 ## Installation
 
@@ -67,7 +66,7 @@ func main() {
     config := types.ClientConfig{
         Network: types.NetworkPolygonAmoy,
         RPCUrl:  "https://rpc-amoy.polygon.technology/",
-        ChainID: "80002",
+        ChainID: "polygon-amoy",
     }
     
     if err := client.AddNetwork(types.NetworkPolygonAmoy, config); err != nil {
