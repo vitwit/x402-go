@@ -183,13 +183,6 @@ func (x *X402) IsNetworkSupported(network types.Network) bool {
 		x.settlementService.IsNetworkSupported(network)
 }
 
-// QuickVerify performs basic validation without blockchain queries
-func (x *X402) QuickVerify(
-	payload *types.VerifyRequest,
-) (*types.VerificationResult, error) {
-	return x.verificationService.QuickVerify(payload)
-}
-
 // EstimateSettlementGas estimates gas costs for a settlement
 func (x *X402) EstimateSettlementGas(
 	ctx context.Context,

@@ -93,8 +93,16 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	if err != nil {
 		return nil, fmt.Errorf("verify payment failed: %w", err)
 	}
+
 	if !ver.IsValid {
-		return &types.SettlementResult{Success: false, Error: ver.InvalidReason,
+		return &types.SettlementResult{
+			Success:   false,
+			Error:     err.Error(),
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    "",
 			Extra: x402types.ExtraData{
 				"feePayer": "",
 			},
@@ -104,17 +112,50 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	// 2) Parse the payload to get the EIP-3009 data
 	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
 	if err != nil {
-		return nil, fmt.Errorf("invalid base64 payload: %w", err)
+		return &x402types.SettlementResult{
+			Success:   false,
+			Error:     fmt.Sprintf("invalid base64 payload: %w", err),
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+		}, fmt.Errorf("invalid base64 payload: %w", err)
 	}
 	_, parsed, err := ParseEvmPaymentPayload(data)
 	if err != nil {
-		return nil, fmt.Errorf("parse evm payload failed: %w", err)
+		return &x402types.SettlementResult{
+			Success:   false,
+			Error:     fmt.Sprintf("parse evm payload failed: %w", err),
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+		}, fmt.Errorf("parse evm payload failed: %w", err)
 	}
 	p := parsed.(types.EIP3009Payload)
 
 	// 3) Ensure facilitator has a private key
 	if e.privateKey == nil {
-		return nil, fmt.Errorf("facilitator private key not configured")
+		return &x402types.SettlementResult{
+			Success:   false,
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+			Error: "facilitator private key not configured",
+		}, fmt.Errorf("facilitator private key not configured")
 	}
 
 	//----------------------------------------------------
@@ -122,22 +163,66 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	//----------------------------------------------------
 	parsedABI, err := abi.JSON(strings.NewReader(usdcABI))
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			Success:   false,
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+			Error: err.Error(),
+		}, err
 	}
 
 	value, err := strconv.Atoi(p.Authorization.Value)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	vb, err := strconv.Atoi(p.Authorization.ValidBefore)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	va, err := strconv.Atoi(p.Authorization.ValidAfter)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	callData, err := parsedABI.Pack(
@@ -151,7 +236,18 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 		common.FromHex(p.Signature),
 	)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": "",
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	facilitatorAddr := crypto.PubkeyToAddress(e.privateKey.PublicKey)
@@ -161,7 +257,18 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	//----------------------------------------------------
 	nonce, err := e.client.PendingNonceAt(ctx, facilitatorAddr)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	msg := ethereum.CallMsg{
@@ -171,7 +278,18 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	}
 	estimatedGas, err := e.client.EstimateGas(ctx, msg)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	gasLimit := estimatedGas * 2
@@ -181,17 +299,50 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 
 	chainID, err := e.client.NetworkID(ctx)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	gasTip, err := e.client.SuggestGasTipCap(ctx)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	gasFeeCap, err := e.client.SuggestGasPrice(ctx)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	assetAddress := common.HexToAddress(payload.PaymentRequirements.Asset)
@@ -207,7 +358,18 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 
 	signedTx, err := goethtypes.SignTx(tx, goethtypes.NewLondonSigner(chainID), e.privateKey)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	//----------------------------------------------------
@@ -215,12 +377,34 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	//----------------------------------------------------
 	err = e.client.SendTransaction(ctx, signedTx)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	receipt, err := bind.WaitMined(ctx, e.client, signedTx)
 	if err != nil {
-		return nil, err
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    ver.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Sender:    ver.Sender,
+			Extra: x402types.ExtraData{
+				"feePayer": facilitatorAddr.Hex(),
+			},
+			Success: false,
+			Error:   err.Error(),
+		}, err
 	}
 
 	return &x402types.SettlementResult{
@@ -230,6 +414,10 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 		Extra: x402types.ExtraData{
 			"feePayer": facilitatorAddr.Hex(),
 		},
+		Asset:     payload.PaymentRequirements.Asset,
+		Amount:    ver.Amount,
+		Recipient: payload.PaymentRequirements.PayTo,
+		Sender:    ver.Sender,
 	}, nil
 }
 

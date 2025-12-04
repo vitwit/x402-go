@@ -64,21 +64,71 @@ func (s *SolanaClient) GetNetwork() x402types.Network {
 // SettlePayment implements Client.
 func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.VerifyRequest) (*x402types.SettlementResult, error) {
 	// 1) Decode wrapper JSON (same as VerifyPayment)
+
+	vr, err := s.VerifyPayment(ctx, payload)
+	if err != nil {
+		return &types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     err.Error(),
+			Success:   false,
+			Sender:    "",
+		}, err
+	}
+
+	if !vr.IsValid {
+		return &types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     vr.Error,
+			Success:   false,
+			Sender:    "",
+		}, nil
+	}
+
 	wrapper, err := decodeTopLevelPaymentPayload(payload.PaymentPayload.Payload)
 	if err != nil {
-		return &x402types.SettlementResult{}, fmt.Errorf("invalid_payload: %w", err)
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     err.Error(),
+			Success:   false,
+			Sender:    vr.Sender,
+		}, fmt.Errorf("invalid_payload: %w", err)
 	}
 
 	// 2) Decode base64 transaction bytes
 	txBytes, err := base64.StdEncoding.DecodeString(wrapper.Transaction)
 	if err != nil {
-		return &x402types.SettlementResult{}, fmt.Errorf("invalid_transaction_base64: %w", err)
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     err.Error(),
+			Success:   false,
+			Sender:    vr.Sender,
+		}, fmt.Errorf("invalid_transaction_base64: %w", err)
 	}
 
 	// 3) Parse transaction
 	tx, err := solana.TransactionFromDecoder(bin.NewBinDecoder(txBytes))
 	if err != nil {
-		return &x402types.SettlementResult{}, fmt.Errorf("invalid_transaction: %w", err)
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     err.Error(),
+			Success:   false,
+			Sender:    vr.Sender,
+		}, fmt.Errorf("invalid_transaction: %w", err)
 	}
 
 	// 4) Determine feePayer: prefer PaymentRequirements.Extra["feePayer"], fallback to configured facilitator PK.
@@ -97,29 +147,69 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	// 5) Basic safety: ensure there is at least one signature slot (fee payer placeholder expected)
 	required := int(tx.Message.Header.NumRequiredSignatures)
 	if required == 0 || len(tx.Signatures) < required {
-		return &x402types.SettlementResult{}, errors.New("transaction_missing_required_signatures")
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     "transaction_missing_required_signatures",
+			Success:   false,
+			Sender:    vr.Sender,
+		}, errors.New("transaction_missing_required_signatures")
 	}
 
 	// 6) Verify user signatures (skip fee payer index). This uses the helper you already added.
 	if err := verifyUserSignatures(tx.Message, tx.Signatures, feePayer); err != nil {
-		return &x402types.SettlementResult{}, fmt.Errorf("user_signature_verification_failed: %w", err)
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     err.Error(),
+			Success:   false,
+			Sender:    vr.Sender,
+		}, fmt.Errorf("user_signature_verification_failed: %w", err)
 	}
 
 	// 7) Prepare sign-bytes for signing (v0 or legacy)
 	msgBytes, err := getSignBytes(tx.Message)
 	if err != nil {
-		return &x402types.SettlementResult{}, fmt.Errorf("failed_to_serialize_message_for_signing: %w", err)
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     err.Error(),
+			Success:   false,
+			Sender:    vr.Sender,
+		}, fmt.Errorf("failed_to_serialize_message_for_signing: %w", err)
 	}
 
 	if err := verifyBlockhashFreshness(ctx, s.client, tx.Message); err != nil {
 		fmt.Println("Err = ", err)
-		return &x402types.SettlementResult{}, fmt.Errorf("failed_to_serialize_message_for_signing: %w", err)
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     err.Error(),
+			Success:   false,
+			Sender:    vr.Sender,
+		}, fmt.Errorf("failed_to_serialize_message_for_signing: %w", err)
 	}
 
 	// 8) Sign as facilitator (fee payer) using stored ed25519 private key
 	sigBytes := ed25519.Sign(s.feePayerSK, msgBytes)
 	if len(sigBytes) != ed25519.SignatureSize {
-		return &x402types.SettlementResult{}, errors.New("invalid_facilitator_signature_length")
+		return &x402types.SettlementResult{
+			NetworkId: payload.PaymentPayload.Network,
+			Asset:     payload.PaymentRequirements.Asset,
+			Amount:    vr.Amount,
+			Recipient: payload.PaymentRequirements.PayTo,
+			Error:     "invalid_facilitator_signature_length",
+			Success:   false,
+			Sender:    vr.Sender,
+		}, errors.New("invalid_facilitator_signature_length")
 	}
 
 	// Copy into solana.Signature type ([64]byte)
@@ -159,14 +249,27 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 		// fallback: try send raw bytes
 		raw, err := tx.MarshalBinary() // Transaction.Bytes() returns wire-format bytes (gagliardetto)
 		if err != nil {
-			return &x402types.SettlementResult{}, fmt.Errorf("transaction_marshal_error: %w", err)
+			return &x402types.SettlementResult{
+				NetworkId: payload.PaymentPayload.Network,
+				Asset:     payload.PaymentRequirements.Asset,
+				Amount:    vr.Amount,
+				Recipient: payload.PaymentRequirements.PayTo,
+				Error:     err.Error(),
+				Success:   false,
+				Sender:    vr.Sender,
+			}, fmt.Errorf("transaction_marshal_error: %w", err)
 		}
 
 		sentSig, err = s.client.SendRawTransaction(ctx, raw)
 		if err != nil {
 			return &x402types.SettlementResult{
-				Success: false,
-				Error:   fmt.Sprintf("broadcast_failed: %v", err),
+				NetworkId: payload.PaymentPayload.Network,
+				Asset:     payload.PaymentRequirements.Asset,
+				Amount:    vr.Amount,
+				Recipient: payload.PaymentRequirements.PayTo,
+				Success:   false,
+				Sender:    vr.Sender,
+				Error:     fmt.Sprintf("broadcast_failed: %v", err),
 			}, fmt.Errorf("rpc_send_transaction_failed: %w", err)
 		}
 	}
@@ -194,6 +297,11 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 		res.Error = "transaction_not_confirmed"
 		return res, nil
 	}
+
+	res.Asset = payload.PaymentRequirements.Asset
+	res.Amount = vr.Amount
+	res.Recipient = payload.PaymentRequirements.PayTo
+	res.Sender = vr.Sender
 
 	// Transaction confirmed
 	res.Success = true

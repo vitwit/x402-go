@@ -32,6 +32,7 @@ const (
 	NetworkCosmosHub     Network = "cosmoshub-4"
 	NetworkCosmosTestnet Network = "theta-testnet-001"
 	NetworkCosmosLocal   Network = "testnet"
+	NetworkRegenTest     Network = "regen-upgrade"
 )
 
 // PaymentScheme represents different payment schemes
@@ -324,6 +325,7 @@ type VerificationResult struct {
 	Error         string     `json:"error,omitempty"`
 	Extra         ExtraData  `json:"extra,omitempty"`
 	Payer         string     `json:"payer,omitempty"`
+	Fees          string     `json:"fees,omitempty"`
 }
 
 // PriorityLevel represents transaction priority
@@ -343,6 +345,14 @@ type SettlementResult struct {
 	NetworkId string    `json:"networkId,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	Extra     ExtraData `json:"extra,omitempty"`
+
+	Amount        string     `json:"amount,omitempty"`
+	Asset         string     `json:"asset,omitempty"`
+	Recipient     string     `json:"recipient,omitempty"`
+	Sender        string     `json:"sender,omitempty"`
+	Timestamp     *time.Time `json:"timestamp,omitempty"`
+	Confirmations int        `json:"confirmations,omitempty"`
+	Fees          string     `json:"fees,omitempty"`
 }
 
 // ClientConfig contains configuration for blockchain clients
@@ -432,7 +442,7 @@ func (n Network) IsSolana() bool {
 }
 
 func (n Network) IsCosmos() bool {
-	return n == NetworkCosmosHub || n == NetworkCosmosTestnet || n == NetworkCosmosLocal
+	return n == NetworkCosmosHub || n == NetworkCosmosTestnet || n == NetworkCosmosLocal || n == NetworkRegenTest
 }
 
 func (n Network) String() string {
