@@ -11,7 +11,6 @@ The x402 Go library provides a comprehensive solution for building payment facil
 - **Multi-Chain Support**: EVM (Polygon, Base), Solana, Cosmos
 - **Payment Verification**: Verify on-chain transactions against payment requirements
 - **Payment Settlement**: Create, sign, and broadcast settlement transactions
-- **Batch Operations**: Process multiple payments concurrently
 - **Type Safety**: Full Go type safety with comprehensive validation
 - **High Performance**: Optimized for high-throughput payment processing
 - **Extensible**: Easy to add support for new networks and token standards
@@ -30,7 +29,7 @@ The x402 Go library provides a comprehensive solution for building payment facil
 
 - **Cosmos Networks**:
   - Cosmos Hub (`cosmoshub-4`)
-  - Theta Testnet (`theta-testnet-001`)
+  - Osmosis Mainnet (`osmosis-1`)
 
 ### Supported Token Standards
 
@@ -44,48 +43,6 @@ The x402 Go library provides a comprehensive solution for building payment facil
 go get github.com/vitwit/x402
 ```
 
-## Quick Start
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-    
-    x402 "github.com/vitwit/x402"
-    "github.com/vitwit/x402/types"
-)
-
-func main() {
-    // Initialize the x402 client
-    client := x402.NewWithDefaults()
-    defer client.Close()
-    
-    // Add network support
-    config := types.ClientConfig{
-        Network: types.NetworkPolygonAmoy,
-        RPCUrl:  "https://rpc-amoy.polygon.technology/",
-        ChainID: "polygon-amoy",
-    }
-    
-    if err := client.AddNetwork(types.NetworkPolygonAmoy, config); err != nil {
-        log.Fatal("Failed to add network:", err)
-    }
-    
-    // Create payment payload and requirements
-    payload, requirements := x402.CreateTestPayment()
-    
-    // Verify payment
-    result, err := client.VerifyWithObjects(context.Background(), payload, requirements)
-    if err != nil {
-        log.Fatal("Verification failed:", err)
-    }
-    
-    log.Printf("Payment valid: %v", result.Valid)
-}
-```
-
 ## Core Concepts
 
 ### Payment Payload
@@ -93,19 +50,20 @@ func main() {
 A payment payload contains the actual transaction data that needs to be verified:
 
 ```go
-payload := &types.PaymentPayload{
-    Network:   types.NetworkPolygonAmoy,
-    Amount:    "1.5",
-    Token:     "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", // USDC
-    Recipient: "0x742d35Cc6634C0532925a3b8D098f69DB22B6b8B",
-    Sender:    "0x8ba1f109551bD432803012645Hac136c22ABB6",
-    Timestamp: time.Now(),
-    Memo:      "Payment for API access",
-    EVM: &types.EVMPaymentData{
-        TransactionHash: "0x1234...5678",
-        BlockNumber:     12345678,
-    },
+type PaymentPayload struct {
+	// X402 payment protocol version.
+	X402Version int `json:"x402Version"`
+
+	// Payment scheme (e.g. "exact").
+	Scheme string `json:"scheme"`
+
+	// Target network (e.g. "base-testnet", "solana-devnet", etc.).
+	Network string `json:"network"`
+
+	// Base64-encoded transaction payload.
+	Payload string `json:"payload"`
 }
+
 ```
 
 ### Payment Requirements
@@ -113,115 +71,43 @@ payload := &types.PaymentPayload{
 Payment requirements specify what constitutes a valid payment:
 
 ```go
-requirements := &types.PaymentRequirements{
-    X402Version: types.X402Version1,
-    Scheme:      types.SchemeExact,
-    Network:     types.NetworkPolygonAmoy,
-    Token: types.TokenInfo{
-        Standard: types.TokenStandardERC20,
-        Address:  "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-        Symbol:   "USDC",
-        Decimals: 6,
-    },
-    Amount: &types.Amount{
-        Value: decimal.NewFromFloat(1.5),
-    },
-    Recipient: "0x742d35Cc6634C0532925a3b8D098f69DB22B6b8B",
+// PaymentRequirements defines the requirements a resource server accepts for payment.
+type PaymentRequirements struct {
+	// Scheme of the payment protocol to use (e.g., "exact", "stream").
+	Scheme string `json:"scheme"`
+
+	// Network of the blockchain to send payment on (e.g., "ethereum-mainnet").
+	Network string `json:"network"`
+
+	// Maximum amount required to pay for the resource in atomic units of the asset.
+	// Represented as a string because Go does not support uint256.
+	MaxAmountRequired string `json:"maxAmountRequired"`
+
+	// URL of the resource to pay for.
+	Resource string `json:"resource"`
+
+	// Description of the resource being purchased.
+	Description string `json:"description"`
+
+	// MIME type of the resource response (e.g., "application/json").
+	MimeType string `json:"mimeType"`
+
+	// Output schema of the resource response, if applicable.
+	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"`
+
+	// Address to which the payment must be sent.
+	PayTo string `json:"payTo"`
+
+	// Maximum time in seconds for the resource server to respond.
+	MaxTimeoutSeconds int `json:"maxTimeoutSeconds"`
+
+	// Address of the EIP-3009 compliant ERC20 contract.
+	Asset string `json:"asset"`
+
+	// Extra information about payment details specific to the scheme.
+	// For the `exact` scheme on EVM, this may include fields like `name` and `version`.
+	Extra map[string]interface{} `json:"extra,omitempty"`
 }
-```
-
-## Usage Examples
-
-### Basic Payment Verification
-
-```go
-// Quick verification (no blockchain queries)
-quickResult, err := client.QuickVerify(payload, requirements)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Full verification (with blockchain queries)
-fullResult, err := client.VerifyWithObjects(ctx, payload, requirements)
-if err != nil {
-    log.Fatal(err)
-}
-
-fmt.Printf("Payment valid: %v", fullResult.Valid)
-```
-
-### Payment Settlement
-
-```go
-// Create settlement request
-request := &types.SettlementRequest{
-    PaymentPayload:      *payload,
-    PaymentRequirements: *requirements,
-    PrivateKey:          privateKey,
-    Options: types.SettlementOptions{
-        Priority:      types.PriorityMedium,
-        Confirmations: 1,
-    },
-}
-
-// Settle payment
-result, err := client.SettleWithObjects(ctx, request)
-if err != nil {
-    log.Fatal(err)
-}
-
-fmt.Printf("Settlement successful: %v, TxHash: %s", result.Success, result.TransactionHash)
-```
-
-### Batch Operations
-
-```go
-// Verify multiple payments concurrently
-results, err := client.BatchVerify(ctx, payloads, requirements)
-if err != nil {
-    log.Fatal(err)
-}
-
-for i, result := range results {
-    fmt.Printf("Payment %d valid: %v", i, result.Valid)
-}
-
-// Settle multiple payments concurrently
-settlementResults, err := client.BatchSettle(ctx, requests)
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-### Multi-Chain Support
-
-```go
-// Add multiple networks
-networks := []struct {
-    network types.Network
-    rpcUrl  string
-    chainID string
-}{
-    {types.NetworkPolygonAmoy, "https://rpc-amoy.polygon.technology/", "80002"},
-    {types.NetworkSolanaDevnet, "https://api.devnet.solana.com", "devnet"},
-    {types.NetworkBaseSepolia, "https://sepolia.base.org/", "84532"},
-}
-
-for _, net := range networks {
-    config := types.ClientConfig{
-        Network: net.network,
-        RPCUrl:  net.rpcUrl,
-        ChainID: net.chainID,
-    }
-    
-    if err := client.AddNetwork(net.network, config); err != nil {
-        log.Printf("Failed to add %s: %v", net.network, err)
-    }
-}
-
-// Check supported networks
-supportedNetworks := client.GetSupportedNetworks()
-fmt.Printf("Supported networks: %v", supportedNetworks)
 ```
 
 ## Architecture
@@ -244,89 +130,12 @@ The library is organized into several key components:
 - Multi-chain verification routing
 - Batch verification support
 
-### Settlement (`settlement/`)
-- Payment settlement logic
-- Transaction creation and broadcasting
-- Multi-chain settlement routing
 
 ### Utilities (`utils/`)
 - Cryptographic functions
 - Validation helpers
 - JSON parsing and serialization
 
-## Advanced Features
-
-### Custom Network Configuration
-
-```go
-config := &types.X402Config{
-    DefaultTimeout:    60 * time.Second,
-    RetryCount:        5,
-    EnableMetrics:     true,
-    LogLevel:          "debug",
-    Clients: map[types.Network]types.ClientConfig{
-        types.NetworkPolygon: {
-            RPCUrl:     "https://polygon-rpc.com",
-            WSUrl:      "wss://polygon-ws.com",
-            Timeout:    30 * time.Second,
-            RetryCount: 3,
-        },
-    },
-}
-
-client := x402.New(config)
-```
-
-### Gas Estimation
-
-```go
-// Estimate gas costs before settlement
-gasLimit, err := client.EstimateSettlementGas(ctx, settlementRequest)
-if err != nil {
-    log.Fatal("Gas estimation failed:", err)
-}
-
-fmt.Printf("Estimated gas: %d", gasLimit)
-```
-
-### Flexible Amount Schemes
-
-```go
-// Exact amount
-exactAmount := &types.Amount{
-    Value: decimal.NewFromFloat(1.5),
-}
-
-// Range amount
-rangeAmount := &types.Amount{
-    Min: decimal.NewFromFloat(1.0),
-    Max: decimal.NewFromFloat(2.0),
-}
-
-// Any amount (for donations, tips, etc.)
-anyAmount := &types.Amount{
-    Currency: "USDC",
-}
-```
-
-## Error Handling
-
-The library provides comprehensive error handling with specific error codes:
-
-```go
-if err != nil {
-    if x402Err, ok := err.(*types.X402Error); ok {
-        switch x402Err.Code {
-        case types.ErrInvalidPayload:
-            // Handle invalid payload
-        case types.ErrUnsupportedNetwork:
-            // Handle unsupported network
-        case types.ErrVerificationFailed:
-            // Handle verification failure
-        }
-    }
-}
-```
 
 ## Testing
 
@@ -350,48 +159,6 @@ go test -cover ./...
 4. Add tests for new functionality
 5. Ensure all tests pass
 6. Submit a pull request
-
-## Performance Considerations
-
-### High-Throughput Operations
-
-- Use batch operations for multiple payments
-- Configure appropriate timeouts for your use case
-- Consider connection pooling for high-volume scenarios
-
-### Resource Management
-
-- Always call `client.Close()` when done
-- Set appropriate context timeouts
-- Monitor memory usage with large batches
-
-### Network Optimization
-
-- Use WebSocket connections where available
-- Configure retry policies based on network reliability
-- Consider regional RPC endpoints for better latency
-
-## Security Best Practices
-
-### Private Key Management
-
-- Never hardcode private keys
-- Use secure key management systems
-- Rotate keys regularly
-
-### Input Validation
-
-- Always validate input parameters
-- Use the built-in validation functions
-- Implement additional business logic validation
-
-### Network Security
-
-- Use HTTPS/WSS for all connections
-- Validate SSL certificates
-- Implement rate limiting
-
-## Troubleshooting
 
 ### Common Issues
 
