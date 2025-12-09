@@ -29,10 +29,12 @@ const (
 	NetworkSolanaDevnet  Network = "solana-devnet" // testnet
 
 	// Cosmos Networks
-	NetworkCosmosHub     Network = "cosmoshub-4"
-	NetworkCosmosTestnet Network = "theta-testnet-001"
-	NetworkCosmosLocal   Network = "testnet"
-	NetworkRegenTest     Network = "regen-upgrade"
+	NetworkCosmosHub      Network = "cosmoshub-4"
+	NetworkOsmosisMainnet Network = "osmosis-1"
+	// NetworkCosmosTestnet  Network = "theta-testnet-001"
+	NetworkCosmosLocal Network = "testnet"
+	// NetworkRegenTest      Network = "regen-upgrade"
+	NetworkNobleMainnet Network = "noble-1"
 )
 
 // PaymentScheme represents different payment schemes
@@ -442,7 +444,7 @@ func (n Network) IsSolana() bool {
 }
 
 func (n Network) IsCosmos() bool {
-	return n == NetworkCosmosHub || n == NetworkCosmosTestnet || n == NetworkCosmosLocal || n == NetworkRegenTest
+	return n == NetworkCosmosHub || n == NetworkCosmosLocal || n == NetworkOsmosisMainnet || n == NetworkNobleMainnet
 }
 
 func (n Network) String() string {

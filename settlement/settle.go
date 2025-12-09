@@ -83,15 +83,6 @@ func (s *SettlementService) Settle(
 	settleCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	// Validate request
-	// if err := s.validateSettlementRequest(request); err != nil {
-	// 	return &types.SettlementResult{
-	// 		Success:   false,
-	// 		Error:     fmt.Sprintf("invalid settlement request: %v", err),
-	// 		Timestamp: time.Now(),
-	// 	}, nil
-	// }
-
 	network := types.Network(payload.PaymentRequirements.Network)
 
 	// Route to appropriate settlement method based on network type
@@ -268,41 +259,16 @@ func (s *SettlementService) EstimateGas(
 
 // Helper functions
 
-func (s *SettlementService) validateSettlementRequest(request *types.VerifyRequest) error {
-	// if request == nil {
-	// 	return fmt.Errorf("settlement request is nil")
-	// }
-
-	// if err := request.PaymentPayload.Validate(); err != nil {
-	// 	return fmt.Errorf("invalid payment payload: %w", err)
-	// }
-
-	// if err := request.PaymentRequirements.Validate(); err != nil {
-	// 	return fmt.Errorf("invalid payment requirements: %w", err)
-	// }
-
-	// if request.PrivateKey == "" {
-	// 	return fmt.Errorf("private key is required")
-	// }
-
-	// // Check network compatibility
-	// if request.PaymentPayload.Network != request.PaymentRequirements.Network {
-	// 	return fmt.Errorf("payload network does not match requirements network")
-	// }
-
-	return nil
-}
-
 func getDefaultGasLimits() map[types.Network]uint64 {
 	return map[types.Network]uint64{
-		types.NetworkPolygon:       21000,
-		types.NetworkPolygonAmoy:   21000,
-		types.NetworkBase:          21000,
-		types.NetworkBaseSepolia:   21000,
-		types.NetworkSolanaMainnet: 5000,
-		types.NetworkSolanaDevnet:  5000,
-		types.NetworkCosmosHub:     200000,
-		types.NetworkCosmosTestnet: 200000,
+		types.NetworkPolygon:        21000,
+		types.NetworkPolygonAmoy:    21000,
+		types.NetworkBase:           21000,
+		types.NetworkBaseSepolia:    21000,
+		types.NetworkSolanaMainnet:  5000,
+		types.NetworkSolanaDevnet:   5000,
+		types.NetworkCosmosHub:      200000,
+		types.NetworkOsmosisMainnet: 200000,
 	}
 }
 
@@ -314,26 +280,6 @@ func getDefaultGasPrice(network types.Network) *big.Int {
 		return big.NewInt(1_000_000_000) // 1 gwei
 	default:
 		return big.NewInt(20_000_000_000) // 20 gwei
-	}
-}
-
-func getRequiredConfirmations(network types.Network, requested int) int {
-	if requested > 0 {
-		return requested
-	}
-
-	// Default confirmations based on network
-	switch network {
-	case types.NetworkPolygon, types.NetworkPolygonAmoy:
-		return 3
-	case types.NetworkBase, types.NetworkBaseSepolia:
-		return 1
-	case types.NetworkSolanaMainnet, types.NetworkSolanaDevnet:
-		return 1
-	case types.NetworkCosmosHub, types.NetworkCosmosTestnet:
-		return 1
-	default:
-		return 1
 	}
 }
 

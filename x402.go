@@ -25,6 +25,7 @@ type X402 struct {
 
 // New creates a new X402 instance with the given configuration
 func New(config *types.X402Config) *X402 {
+	// TODO: configure this
 	timeout := 30 * time.Second
 	if config != nil && config.DefaultTimeout > 0 {
 		timeout = config.DefaultTimeout
@@ -210,10 +211,9 @@ func GetVersion() map[string]interface{} {
 		"library_version":  Version,
 		"protocol_version": ProtocolVersion,
 		"supported_networks": []string{
-			"polygon", "polygon-amoy",
-			"base", "base-sepolia",
-			"solana-mainnet", "solana-devnet",
-			"cosmoshub-4", "theta-testnet-001",
+			"base-sepolia",
+			"solana-devnet",
+			"cosmoshub-4", "osmosis-1", "noble-1",
 		},
 		"supported_schemes": []string{
 			"exact", "range", "any",
