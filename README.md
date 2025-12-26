@@ -12,36 +12,41 @@ The x402 Go library provides a comprehensive solution for building payment facil
 - **Payment Verification**: Verify on-chain transactions against payment requirements
 - **Payment Settlement**: Create, sign, and broadcast settlement transactions
 - **Type Safety**: Full Go type safety with comprehensive validation
-- **High Performance**: Optimized for high-throughput payment processing
 - **Extensible**: Easy to add support for new networks and token standards
+- **Logging**: Pluggable logger
+- **Metrics**: Pluggable metrics (Prometheus, OTel, No-op)
+
+## Getting Started
+
+For a complete, step-by-step integration guide, see:
+
+👉 **[HOW_TO_USE.md](HOW_TO_USE.md)**
+
+## Installation
+
+``` sh
+go get github.com/vitwit/x402
+```
+
+Optional dependencies:
+
+``` sh
+go get go.uber.org/zap
+go get github.com/prometheus/client_golang/prometheus
+```
 
 ### Supported Networks
 
-- **EVM Networks**:
-  - Polygon (`polygon`)
-  - Polygon Amoy Testnet (`polygon-amoy`)
-  - Base (`base`)
-  - Base Sepolia Testnet (`base-sepolia`)
+- **EVM Networks**
+- **Solana Network**
+- **Cosmos Networks**
 
-- **Solana Networks**:
-  - Mainnet (`solana-mainnet`)
-  - Devnet (`solana-devnet`)
-
-- **Cosmos Networks**:
-  - Cosmos Hub (`cosmoshub-4`)
-  - Osmosis Mainnet (`osmosis-1`)
 
 ### Supported Token Standards
 
 - **ERC20**: Ethereum-compatible token standard
 - **SPL**: Solana Program Library tokens
 - **Native**: Native Cosmos blockchain tokens
-
-## Installation
-
-```bash
-go get github.com/vitwit/x402
-```
 
 ## Core Concepts
 
@@ -136,6 +141,11 @@ The library is organized into several key components:
 - Validation helpers
 - JSON parsing and serialization
 
+### Logger (`logger/`)
+- Zap and NoOp logger
+
+### Metrics (`metrics/`)
+- Prometheus metrics
 
 ## Testing
 
@@ -177,15 +187,6 @@ go test -cover ./...
    - Check account balance
    - Ensure proper gas estimation
 
-### Debug Mode
-
-Enable debug logging:
-
-```go
-config := &types.X402Config{
-    LogLevel: "debug",
-}
-```
 
 ## License
 

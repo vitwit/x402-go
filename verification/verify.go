@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/vitwit/x402/clients"
+	"github.com/vitwit/x402/logger"
+	"github.com/vitwit/x402/metrics"
 	"github.com/vitwit/x402/types"
 )
 
@@ -16,58 +18,79 @@ type Verifier interface {
 
 // VerificationService manages payment verification across multiple networks
 type VerificationService struct {
-	evmClients    map[types.Network]*clients.EVMClient
-	solanaClients map[types.Network]*clients.SolanaClient
-	cosmosClients map[types.Network]*clients.CosmosClient
+	evmClients    map[string]*clients.EVMClient
+	solanaClients map[string]*clients.SolanaClient
+	cosmosClients map[string]*clients.CosmosClient
 	timeout       time.Duration
+
+	metrics metrics.Recorder
+	logger  logger.Logger
+
+	capabilities map[string]types.NetworkCapability
 }
 
 // NewVerificationService creates a new verification service
-func NewVerificationService(timeout time.Duration) *VerificationService {
+func NewVerificationService(timeout time.Duration,
+	recorder metrics.Recorder,
+	logger logger.Logger,
+) *VerificationService {
 	return &VerificationService{
-		evmClients:    make(map[types.Network]*clients.EVMClient),
-		solanaClients: make(map[types.Network]*clients.SolanaClient),
-		cosmosClients: make(map[types.Network]*clients.CosmosClient),
+		evmClients:    make(map[string]*clients.EVMClient),
+		solanaClients: make(map[string]*clients.SolanaClient),
+		cosmosClients: make(map[string]*clients.CosmosClient),
 		timeout:       timeout,
+		metrics:       recorder,
+		logger:        logger,
+		capabilities:  make(map[string]types.NetworkCapability),
 	}
 }
 
-// AddEVMClient adds an EVM client for a specific network
-func (s *VerificationService) AddEVMClient(network types.Network, client *clients.EVMClient) error {
-	if !network.IsEVM() {
-		return &types.X402Error{
-			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("network %s is not an EVM network", network),
-		}
+func (s *VerificationService) Capabilities() []types.NetworkCapability {
+	var result []types.NetworkCapability = make([]types.NetworkCapability, 0, 10)
+	for _, v := range s.capabilities {
+		result = append(result, types.NetworkCapability{
+			Network:     v.Network,
+			X402Version: v.X402Version,
+			Scheme:      v.Scheme,
+			ChainFamily: v.ChainFamily,
+		})
 	}
+	return result
+}
 
+// AddEVMClient adds an EVM client for a specific network
+func (s *VerificationService) AddEVMClient(network string, client *clients.EVMClient, cfg types.ClientConfig) error {
 	s.evmClients[network] = client
+	s.capabilities[network] = types.NetworkCapability{
+		Network:     network,
+		X402Version: cfg.X402Version,
+		Scheme:      cfg.Scheme,
+		ChainFamily: types.ChainEVM,
+	}
 	return nil
 }
 
 // AddSolanaClient adds a Solana client for a specific network
-func (s *VerificationService) AddSolanaClient(network types.Network, client *clients.SolanaClient) error {
-	if !network.IsSolana() {
-		return &types.X402Error{
-			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("network %s is not a Solana network", network),
-		}
-	}
-
+func (s *VerificationService) AddSolanaClient(network string, client *clients.SolanaClient, cfg types.ClientConfig) error {
 	s.solanaClients[network] = client
+	s.capabilities[network] = types.NetworkCapability{
+		Network:     network,
+		X402Version: cfg.X402Version,
+		Scheme:      cfg.Scheme,
+		ChainFamily: types.ChainSolana,
+	}
 	return nil
 }
 
 // AddCosmosClient adds a Cosmos client for a specific network
-func (s *VerificationService) AddCosmosClient(network types.Network, client *clients.CosmosClient) error {
-	if !network.IsCosmos() {
-		return &types.X402Error{
-			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("network %s is not a Cosmos network", network),
-		}
-	}
-
+func (s *VerificationService) AddCosmosClient(network string, client *clients.CosmosClient, cfg types.ClientConfig) error {
 	s.cosmosClients[network] = client
+	s.capabilities[network] = types.NetworkCapability{
+		Network:     network,
+		X402Version: cfg.X402Version,
+		Scheme:      cfg.Scheme,
+		ChainFamily: types.ChainCosmos,
+	}
 	return nil
 }
 
@@ -88,189 +111,41 @@ func (s *VerificationService) Verify(
 		}, nil
 	}
 
-	// TODO: Check network compatibility
+	network := payload.PaymentRequirements.Network
 
-	network := types.Network(payload.PaymentRequirements.Network)
-
-	// Route to appropriate client based on network type
-	switch {
-	case network.IsEVM():
-		return s.verifyEVMPayment(verifyCtx, payload)
-	case network.IsSolana():
-		return s.verifySolanaPayment(verifyCtx, payload)
-	case network.IsCosmos():
-		return s.verifyCosmosPayment(verifyCtx, payload)
-	default:
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("unsupported network: %s", network),
-		}, nil
-	}
-}
-
-// verifyEVMPayment verifies an EVM payment
-func (s *VerificationService) verifyEVMPayment(
-	ctx context.Context,
-	payload *types.VerifyRequest,
-) (*types.VerificationResult, error) {
-	network := types.Network(payload.PaymentRequirements.Network)
-
-	client, exists := s.evmClients[network]
-	if !exists {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("no EVM client configured for network %s", network),
-		}, nil
+	// Try Cosmos verifier
+	if client, ok := s.cosmosClients[network]; ok {
+		return client.VerifyPayment(verifyCtx, payload)
 	}
 
-	result, err := client.VerifyPayment(ctx, payload)
-	if err != nil {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("EVM verification error: %v", err),
-		}, nil
+	// Try EVM verifier
+	if client, ok := s.evmClients[network]; ok {
+		return client.VerifyPayment(verifyCtx, payload)
 	}
 
-	return result, nil
-}
-
-// verifySolanaPayment verifies a Solana payment
-func (s *VerificationService) verifySolanaPayment(
-	ctx context.Context,
-	payload *types.VerifyRequest,
-) (*types.VerificationResult, error) {
-	network := types.Network(payload.PaymentRequirements.Network)
-
-	client, exists := s.solanaClients[network]
-	if !exists {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("no Solana client configured for network %s", network),
-		}, nil
+	// Try Solana verifier
+	if client, ok := s.solanaClients[network]; ok {
+		return client.VerifyPayment(verifyCtx, payload)
 	}
 
-	result, err := client.VerifyPayment(ctx, payload)
-	if err != nil {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("Solana verification error: %v", err),
-		}, nil
-	}
-
-	return result, nil
-}
-
-// verifyCosmosPayment verifies a Cosmos payment
-func (s *VerificationService) verifyCosmosPayment(
-	ctx context.Context,
-	payload *types.VerifyRequest,
-) (*types.VerificationResult, error) {
-	network := types.Network(payload.PaymentRequirements.Network)
-
-	client, exists := s.cosmosClients[network]
-	if !exists {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("no Cosmos client configured for network %s", network),
-		}, nil
-	}
-
-	result, err := client.VerifyPayment(ctx, payload)
-	if err != nil {
-		return &types.VerificationResult{
-			IsValid:       false,
-			InvalidReason: fmt.Sprintf("Cosmos verification error: %v", err),
-		}, nil
-	}
-
-	return result, nil
-}
-
-// BatchVerify verifies multiple payments concurrently
-func (s *VerificationService) BatchVerify(
-	ctx context.Context,
-	payloads []*types.VerifyRequest,
-) ([]*types.VerificationResult, error) {
-
-	results := make([]*types.VerificationResult, len(payloads))
-	errors := make([]error, len(payloads))
-
-	// Create a channel to collect results
-	type verificationResult struct {
-		index  int
-		result *types.VerificationResult
-		err    error
-	}
-
-	resultChan := make(chan verificationResult, len(payloads))
-
-	// Start verification goroutines
-	for i, payload := range payloads {
-		go func(index int, p *types.VerifyRequest) {
-			result, err := s.Verify(ctx, p)
-			resultChan <- verificationResult{
-				index:  index,
-				result: result,
-				err:    err,
-			}
-		}(i, payload)
-	}
-
-	// Collect results
-	for i := 0; i < len(payloads); i++ {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case res := <-resultChan:
-			results[res.index] = res.result
-			errors[res.index] = res.err
-		}
-	}
-
-	// Check for any critical errors
-	for _, err := range errors {
-		if err != nil {
-			return results, err
-		}
-	}
-
-	return results, nil
-}
-
-// GetSupportedNetworks returns all networks that have configured clients
-func (s *VerificationService) GetSupportedNetworks() []types.Network {
-	var networks []types.Network
-
-	for network := range s.evmClients {
-		networks = append(networks, network)
-	}
-
-	for network := range s.solanaClients {
-		networks = append(networks, network)
-	}
-
-	for network := range s.cosmosClients {
-		networks = append(networks, network)
-	}
-
-	return networks
+	return &types.VerificationResult{
+		IsValid:       false,
+		InvalidReason: fmt.Sprintf("no verification client configured for network %s", network),
+	}, nil
 }
 
 // IsNetworkSupported checks if a network is supported
-func (s *VerificationService) IsNetworkSupported(network types.Network) bool {
-	if network.IsEVM() {
-		_, exists := s.evmClients[network]
-		return exists
+func (s *VerificationService) IsNetworkSupported(network string) bool {
+	if _, ok := s.evmClients[network]; ok {
+		return true
 	}
 
-	if network.IsSolana() {
-		_, exists := s.solanaClients[network]
-		return exists
+	if _, ok := s.solanaClients[network]; ok {
+		return true
 	}
 
-	if network.IsCosmos() {
-		_, exists := s.cosmosClients[network]
-		return exists
+	if _, ok := s.cosmosClients[network]; ok {
+		return true
 	}
 
 	return false
@@ -289,43 +164,4 @@ func (s *VerificationService) Close() {
 	for _, client := range s.cosmosClients {
 		client.Close()
 	}
-}
-
-// VerifyWithRetry verifies a payment with retry logic
-func (s *VerificationService) VerifyWithRetry(
-	ctx context.Context,
-	payload *types.VerifyRequest,
-	maxRetries int,
-	retryDelay time.Duration,
-) (*types.VerificationResult, error) {
-	var lastErr error
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			// Wait before retrying
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(retryDelay):
-			}
-		}
-
-		result, err := s.Verify(ctx, payload)
-		if err == nil {
-			return result, nil
-		}
-
-		lastErr = err
-
-		// Don't retry for certain types of errors
-		if x402Err, ok := err.(*types.X402Error); ok {
-			switch x402Err.Code {
-			case types.ErrInvalidPayload, types.ErrInvalidRequirements:
-				// These errors won't be fixed by retrying
-				return nil, err
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("verification failed after %d attempts: %v", maxRetries+1, lastErr)
 }

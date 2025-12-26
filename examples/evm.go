@@ -1,4 +1,4 @@
-package main
+package examples
 
 import (
 	"context"
@@ -15,8 +15,13 @@ import (
 	"github.com/vitwit/x402/utils/eip712"
 )
 
-func main() {
-	client := x402.NewWithDefaults()
+func EVM() {
+	client := x402.New(&types.X402Config{
+		DefaultTimeout: time.Minute,
+		RetryCount:     3,
+		LogLevel:       "",
+		EnableMetrics:  false,
+	})
 	defer client.Close()
 
 	if err := addEvmNetworkSupport(client); err != nil {
@@ -29,16 +34,17 @@ func main() {
 }
 
 func addEvmNetworkSupport(client *x402.X402) error {
-	return client.AddNetwork("base-sepolia", types.ClientConfig{
+	return client.AddNetwork("base-sepolia", types.ChainEVM, types.ClientConfig{
 		Network:       "base-sepolia",
 		RPCUrl:        "https://sepolia.base.org",
 		ChainID:       "84532",
 		AcceptedDenom: "USDC",
+		X402Version:   1,
+		ChainFamily:   types.ChainEVM,
 	})
 }
 
 func exampleEvmVerification(client *x402.X402) error {
-
 	//------------------------------------------------------------
 	// 1. Generate random wallet
 	//------------------------------------------------------------

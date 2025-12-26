@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/vitwit/x402/clients"
+	"github.com/vitwit/x402/logger"
+	"github.com/vitwit/x402/metrics"
 	"github.com/vitwit/x402/types"
 )
 
@@ -17,60 +19,66 @@ type Settler interface {
 
 // SettlementService manages payment settlement across multiple networks
 type SettlementService struct {
-	evmClients    map[types.Network]*clients.EVMClient
-	solanaClients map[types.Network]*clients.SolanaClient
-	cosmosClients map[types.Network]*clients.CosmosClient
+	evmClients    map[string]*clients.EVMClient
+	solanaClients map[string]*clients.SolanaClient
+	cosmosClients map[string]*clients.CosmosClient
 	timeout       time.Duration
-	defaultGas    map[types.Network]uint64
+
+	metrics      metrics.Recorder
+	logger       logger.Logger
+	capabilities map[string]types.NetworkCapability
 }
 
 // NewSettlementService creates a new settlement service
-func NewSettlementService(timeout time.Duration) *SettlementService {
+func NewSettlementService(
+	timeout time.Duration,
+	recorder metrics.Recorder,
+	logger logger.Logger,
+) *SettlementService {
 	return &SettlementService{
-		evmClients:    make(map[types.Network]*clients.EVMClient),
-		solanaClients: make(map[types.Network]*clients.SolanaClient),
-		cosmosClients: make(map[types.Network]*clients.CosmosClient),
+		evmClients:    make(map[string]*clients.EVMClient),
+		solanaClients: make(map[string]*clients.SolanaClient),
+		cosmosClients: make(map[string]*clients.CosmosClient),
+		capabilities:  make(map[string]types.NetworkCapability),
 		timeout:       timeout,
-		defaultGas:    getDefaultGasLimits(),
+		metrics:       recorder,
+		logger:        logger,
 	}
 }
 
 // AddEVMClient adds an EVM client for a specific network
-func (s *SettlementService) AddEVMClient(network types.Network, client *clients.EVMClient) error {
-	if !network.IsEVM() {
-		return &types.X402Error{
-			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("network %s is not an EVM network", network),
-		}
-	}
-
+func (s *SettlementService) AddEVMClient(network string, client *clients.EVMClient, cfg types.ClientConfig) error {
 	s.evmClients[network] = client
+	s.capabilities[network] = types.NetworkCapability{
+		Network:     network,
+		X402Version: cfg.X402Version,
+		Scheme:      cfg.Scheme,
+		ChainFamily: types.ChainEVM,
+	}
 	return nil
 }
 
 // AddSolanaClient adds a Solana client for a specific network
-func (s *SettlementService) AddSolanaClient(network types.Network, client *clients.SolanaClient) error {
-	if !network.IsSolana() {
-		return &types.X402Error{
-			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("network %s is not a Solana network", network),
-		}
-	}
-
+func (s *SettlementService) AddSolanaClient(network string, client *clients.SolanaClient, cfg types.ClientConfig) error {
 	s.solanaClients[network] = client
+	s.capabilities[network] = types.NetworkCapability{
+		Network:     network,
+		X402Version: cfg.X402Version,
+		Scheme:      cfg.Scheme,
+		ChainFamily: types.ChainSolana,
+	}
 	return nil
 }
 
 // AddCosmosClient adds a Cosmos client for a specific network
-func (s *SettlementService) AddCosmosClient(network types.Network, client *clients.CosmosClient) error {
-	if !network.IsCosmos() {
-		return &types.X402Error{
-			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("network %s is not a Cosmos network", network),
-		}
-	}
-
+func (s *SettlementService) AddCosmosClient(network string, client *clients.CosmosClient, cfg types.ClientConfig) error {
 	s.cosmosClients[network] = client
+	s.capabilities[network] = types.NetworkCapability{
+		Network:     network,
+		X402Version: cfg.X402Version,
+		Scheme:      cfg.Scheme,
+		ChainFamily: types.ChainCosmos,
+	}
 	return nil
 }
 
@@ -83,144 +91,28 @@ func (s *SettlementService) Settle(
 	settleCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	network := types.Network(payload.PaymentRequirements.Network)
+	network := payload.PaymentRequirements.Network
 
-	// Route to appropriate settlement method based on network type
-	switch {
-	case network.IsEVM():
-		return s.settleEVMPayment(settleCtx, payload)
-	case network.IsSolana():
-		return s.settleSolanaPayment(settleCtx, payload)
-	case network.IsCosmos():
-		return s.settleCosmosPayment(settleCtx, payload)
-	default:
-		return &types.SettlementResult{
-			Success:   false,
-			Error:     fmt.Sprintf("unsupported network: %s", network),
-			NetworkId: payload.PaymentRequirements.Network,
-		}, nil
-	}
-}
-
-// settleEVMPayment settles an EVM payment
-func (s *SettlementService) settleEVMPayment(
-	ctx context.Context,
-	request *types.VerifyRequest,
-) (*types.SettlementResult, error) {
-	network := types.Network(request.PaymentRequirements.Network)
-
-	client, exists := s.evmClients[network]
-	if !exists {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   fmt.Sprintf("no evm client configured for network %s", network),
-		}, nil
+	// Try Cosmos first
+	if client, ok := s.cosmosClients[network]; ok {
+		return client.SettlePayment(settleCtx, payload)
 	}
 
-	result, err := client.SettlePayment(ctx, request)
-	if err != nil {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+	// Try EVM
+	if client, ok := s.evmClients[network]; ok {
+		return client.SettlePayment(settleCtx, payload)
 	}
 
-	return result, nil
-}
-
-// settleSolanaPayment settles a Solana payment
-func (s *SettlementService) settleSolanaPayment(
-	ctx context.Context,
-	request *types.VerifyRequest,
-) (*types.SettlementResult, error) {
-	network := types.Network(request.PaymentRequirements.Network)
-
-	client, exists := s.solanaClients[network]
-	if !exists {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   fmt.Sprintf("no solana client configured for network %s", network),
-		}, nil
+	// Try Solana
+	if client, ok := s.solanaClients[network]; ok {
+		return client.SettlePayment(settleCtx, payload)
 	}
 
-	result, err := client.SettlePayment(ctx, request)
-	if err != nil {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return result, nil
-}
-
-// settleCosmosPayment settles a Cosmos payment
-func (s *SettlementService) settleCosmosPayment(
-	ctx context.Context,
-	request *types.VerifyRequest,
-) (*types.SettlementResult, error) {
-	network := types.Network(request.PaymentRequirements.Network)
-
-	client, exists := s.cosmosClients[network]
-	if !exists {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   fmt.Sprintf("no Cosmos client configured for network %s", network),
-		}, nil
-	}
-
-	result, err := client.SettlePayment(ctx, request)
-	if err != nil {
-		return &types.SettlementResult{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return result, nil
-}
-
-// BatchSettle settles multiple payments concurrently
-func (s *SettlementService) BatchSettle(
-	ctx context.Context,
-	requests []*types.VerifyRequest,
-) ([]*types.SettlementResult, error) {
-	results := make([]*types.SettlementResult, len(requests))
-
-	// Create a channel to collect results
-	type settlementResult struct {
-		index  int
-		result *types.SettlementResult
-		err    error
-	}
-
-	resultChan := make(chan settlementResult, len(requests))
-
-	// Start settlement goroutines
-	for i, request := range requests {
-		go func(index int, req *types.VerifyRequest) {
-			result, err := s.Settle(ctx, req)
-			resultChan <- settlementResult{
-				index:  index,
-				result: result,
-				err:    err,
-			}
-		}(i, request)
-	}
-
-	// Collect results
-	for i := 0; i < len(requests); i++ {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case res := <-resultChan:
-			results[res.index] = res.result
-			// For batch operations, we collect all results even if some fail
-			// Individual failures are recorded in the result objects
-		}
-	}
-
-	return results, nil
+	return &types.SettlementResult{
+		Success:   false,
+		Error:     fmt.Sprintf("no settlement client configured for network %s", network),
+		NetworkId: network,
+	}, nil
 }
 
 // EstimateGas estimates gas costs for a settlement
@@ -228,59 +120,7 @@ func (s *SettlementService) EstimateGas(
 	ctx context.Context,
 	request *types.VerifyRequest,
 ) (uint64, *big.Int, error) {
-	// network := types.Network(request.PaymentRequirements.Network)
-
-	// // Get default gas estimates based on network and operation type
-	// gasLimit := s.defaultGas[network]
-	// if gasLimit == 0 {
-	// 	gasLimit = getDefaultGasLimits()[network]
-	// }
-
-	// // Adjust for token type
-	// if request.PaymentRequirements.Token.Standard != types.TokenStandardNative {
-	// 	gasLimit = gasLimit * 3 // Token transfers typically use more gas
-	// }
-
-	// // For EVM networks, we can get more accurate estimates
-	// if network.IsEVM() {
-	// 	if client, exists := s.evmClients[network]; exists {
-	// 		// This would require implementing gas estimation in the EVM client
-	// 		_ = client // Use client to estimate actual gas
-	// 	}
-	// }
-
-	// // Return estimated gas and gas price
-	// gasPrice := getDefaultGasPrice(network)
-
-	// return gasLimit, gasPrice, nil
-
 	return 0, nil, nil
-}
-
-// Helper functions
-
-func getDefaultGasLimits() map[types.Network]uint64 {
-	return map[types.Network]uint64{
-		types.NetworkPolygon:        21000,
-		types.NetworkPolygonAmoy:    21000,
-		types.NetworkBase:           21000,
-		types.NetworkBaseSepolia:    21000,
-		types.NetworkSolanaMainnet:  5000,
-		types.NetworkSolanaDevnet:   5000,
-		types.NetworkCosmosHub:      200000,
-		types.NetworkOsmosisMainnet: 200000,
-	}
-}
-
-func getDefaultGasPrice(network types.Network) *big.Int {
-	switch network {
-	case types.NetworkPolygon, types.NetworkPolygonAmoy:
-		return big.NewInt(30_000_000_000) // 30 gwei
-	case types.NetworkBase, types.NetworkBaseSepolia:
-		return big.NewInt(1_000_000_000) // 1 gwei
-	default:
-		return big.NewInt(20_000_000_000) // 20 gwei
-	}
 }
 
 // Close closes all client connections
@@ -299,8 +139,8 @@ func (s *SettlementService) Close() {
 }
 
 // GetSupportedNetworks returns all networks that have configured clients
-func (s *SettlementService) GetSupportedNetworks() []types.Network {
-	var networks []types.Network
+func (s *SettlementService) GetSupportedNetworks() []string {
+	var networks []string
 
 	for network := range s.evmClients {
 		networks = append(networks, network)
@@ -318,20 +158,17 @@ func (s *SettlementService) GetSupportedNetworks() []types.Network {
 }
 
 // IsNetworkSupported checks if a network is supported for settlement
-func (s *SettlementService) IsNetworkSupported(network types.Network) bool {
-	if network.IsEVM() {
-		_, exists := s.evmClients[network]
-		return exists
+func (s *SettlementService) IsNetworkSupported(network string) bool {
+	if _, ok := s.evmClients[network]; ok {
+		return true
 	}
 
-	if network.IsSolana() {
-		_, exists := s.solanaClients[network]
-		return exists
+	if _, ok := s.solanaClients[network]; ok {
+		return true
 	}
 
-	if network.IsCosmos() {
-		_, exists := s.cosmosClients[network]
-		return exists
+	if _, ok := s.cosmosClients[network]; ok {
+		return true
 	}
 
 	return false

@@ -23,7 +23,7 @@ import (
 
 // CosmosClient provides basic Cosmos functionality
 type CosmosClient struct {
-	network       x402types.Network
+	network       string
 	rpcURL        string
 	TxConfig      client.TxConfig
 	AcceptedDenom string
@@ -33,7 +33,7 @@ type CosmosClient struct {
 var _ Client = (*CosmosClient)(nil)
 
 // NewCosmosClient creates a minimal Cosmos client
-func NewCosmosClient(network x402types.Network, rpcURL string, grpcUrl string, acceptedDenom string) (*CosmosClient, error) {
+func NewCosmosClient(network string, rpcURL string, grpcUrl string, acceptedDenom string) (*CosmosClient, error) {
 	interfaceRegistry := codectypes.NewInterfaceRegistry()
 	std.RegisterInterfaces(interfaceRegistry)
 	banktypes.RegisterInterfaces(interfaceRegistry)
@@ -63,7 +63,6 @@ func (c *CosmosClient) VerifyPayment(
 	ctx context.Context,
 	payload *x402types.VerifyRequest,
 ) (*x402types.VerificationResult, error) {
-
 	if c.grpc == nil {
 		return &x402types.VerificationResult{
 			IsValid:       false,
@@ -133,7 +132,6 @@ func (c *CosmosClient) VerifyPayment(
 			_, err = txClient.Simulate(ctx, &txn.SimulateRequest{
 				TxBytes: txBytes,
 			})
-
 			if err != nil {
 				return &x402types.VerificationResult{
 					IsValid:       false,
@@ -159,7 +157,6 @@ func (c *CosmosClient) SettlePayment(
 	ctx context.Context,
 	payload *x402types.VerifyRequest,
 ) (*x402types.SettlementResult, error) {
-
 	vr, err := c.VerifyPayment(ctx, payload)
 	if err != nil {
 		return &x402types.SettlementResult{
@@ -233,7 +230,6 @@ func (c *CosmosClient) SettlePayment(
 		TxBytes: txBytes,
 		Mode:    txn.BroadcastMode_BROADCAST_MODE_SYNC,
 	})
-
 	if err != nil {
 		return &x402types.SettlementResult{
 			Success:   false,
@@ -300,7 +296,6 @@ func (c *CosmosClient) SettlePayment(
 		Recipient: payload.PaymentRequirements.PayTo,
 		Sender:    vr.Sender,
 	}, nil
-
 }
 
 func (c *CosmosClient) WaitForConfirmation(ctx context.Context, txHash string, confirmations int) (*x402types.SettlementResult, error) {
@@ -310,7 +305,7 @@ func (c *CosmosClient) WaitForConfirmation(ctx context.Context, txHash string, c
 	}, nil
 }
 
-func (c *CosmosClient) GetNetwork() x402types.Network { return c.network }
+func (c *CosmosClient) GetNetwork() string { return c.network }
 
 func (c *CosmosClient) Close() {
 	c.grpc.Close()

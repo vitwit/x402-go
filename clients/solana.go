@@ -44,7 +44,7 @@ var Token2022ProgramIDs = []solana.PublicKey{
 // -------------------------
 // store facilitator private key (ed25519 private key bytes)
 type SolanaClient struct {
-	network    x402types.Network
+	network    string
 	rpcURL     string
 	client     *rpc.Client
 	feePayerPK solana.PublicKey   // facilitator public key
@@ -57,7 +57,7 @@ func (s *SolanaClient) Close() {
 }
 
 // GetNetwork implements Client.
-func (s *SolanaClient) GetNetwork() x402types.Network {
+func (s *SolanaClient) GetNetwork() string {
 	return s.network
 }
 
@@ -280,7 +280,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	// Always include TxHash
 	res := &x402types.SettlementResult{
 		TxHash:    sentSig.String(),
-		NetworkId: s.network.String(),
+		NetworkId: s.network,
 		Extra: x402types.ExtraData{
 			"feePayer": feePayer.String(),
 		},
@@ -358,7 +358,6 @@ func (c *SolanaClient) VerifyPayment(
 	ctx context.Context,
 	payload *x402types.VerifyRequest,
 ) (*x402types.VerificationResult, error) {
-
 	if err := validateSchemeAndNetworkPayload(payload); err != nil {
 		return &x402types.VerificationResult{IsValid: false, InvalidReason: err.Error()}, nil
 	}
@@ -501,7 +500,6 @@ func (c *SolanaClient) validateSplTransferChecked(
 	createATAExists bool,
 	preq x402types.PaymentRequirements,
 ) (*x402types.VerificationResult, error) {
-
 	if transferIdx >= len(msg.Instructions) {
 		return nil, errors.New(ErrNotATransferInstruction)
 	}
@@ -800,7 +798,7 @@ func ParseLookupTableAccount(key solana.PublicKey, data []byte) (*AddressLookupT
 }
 
 // helper to initialize the client with facilitator key (pass base58 or hex of private key)
-func NewSolanaClientWithFeePayer(network x402types.Network, rpcURL string, feePayerPrivKeyHex string) (*SolanaClient, error) {
+func NewSolanaClientWithFeePayer(network string, rpcURL string, feePayerPrivKeyHex string) (*SolanaClient, error) {
 	client := rpc.New(rpcURL)
 
 	// decode private key: the exact storage of your key may vary.
@@ -911,7 +909,6 @@ func verifyBlockhashFreshness(
 	rpcClient *rpc.Client,
 	txMsg solana.Message,
 ) error {
-
 	commitment := rpc.CommitmentFinalized
 	latest, err := rpcClient.GetLatestBlockhash(ctx, commitment)
 	if err != nil {

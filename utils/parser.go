@@ -53,30 +53,6 @@ func ParsePaymentRequirements(data []byte) (*types.PaymentRequirements, error) {
 	return &req, nil
 }
 
-// ParseSupportedPaymentKinds parses an array of SupportedPaymentKind from JSON
-func ParseSupportedPaymentKinds(data []byte) ([]types.SupportedPaymentKind, error) {
-	var kinds []types.SupportedPaymentKind
-
-	if err := json.Unmarshal(data, &kinds); err != nil {
-		return nil, &types.X402Error{
-			Code:    types.ErrInvalidPayload,
-			Message: fmt.Sprintf("failed to parse supported payment kinds: %v", err),
-		}
-	}
-
-	// Validate each kind
-	for i, kind := range kinds {
-		if err := validate.Struct(&kind); err != nil {
-			return nil, &types.X402Error{
-				Code:    types.ErrInvalidPayload,
-				Message: fmt.Sprintf("validation failed for kind %d: %v", i, err),
-			}
-		}
-	}
-
-	return kinds, nil
-}
-
 // SerializePaymentRequirements converts PaymentRequirements to JSON
 func SerializePaymentRequirements(req *types.PaymentRequirements) ([]byte, error) {
 	return json.Marshal(req)

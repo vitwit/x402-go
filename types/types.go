@@ -14,36 +14,11 @@ const (
 	X402Version1 X402Version = 1
 )
 
-// Network represents supported blockchain networks
-type Network string
-
-const (
-	// EVM Networks
-	NetworkPolygon     Network = "polygon"
-	NetworkPolygonAmoy Network = "polygon-amoy" // testnet
-	NetworkBaseSepolia Network = "base-sepolia" // testnet
-	NetworkBase        Network = "base"
-
-	// Solana Networks
-	NetworkSolanaMainnet Network = "solana-mainnet"
-	NetworkSolanaDevnet  Network = "solana-devnet" // testnet
-
-	// Cosmos Networks
-	NetworkCosmosHub      Network = "cosmoshub-4"
-	NetworkOsmosisMainnet Network = "osmosis-1"
-	// NetworkCosmosTestnet  Network = "theta-testnet-001"
-	NetworkCosmosLocal Network = "testnet"
-	// NetworkRegenTest      Network = "regen-upgrade"
-	NetworkNobleMainnet Network = "noble-1"
-)
-
 // PaymentScheme represents different payment schemes
 type PaymentScheme string
 
 const (
 	SchemeExact PaymentScheme = "exact"
-	SchemeRange PaymentScheme = "range"
-	SchemeAny   PaymentScheme = "any"
 )
 
 // TokenStandard represents different token standards
@@ -306,14 +281,6 @@ type Amount struct {
 // ExtraData contains additional payment-specific data
 type ExtraData map[string]interface{}
 
-// SupportedPaymentKind describes what payment types a facilitator supports
-type SupportedPaymentKind struct {
-	X402Version X402Version   `json:"x402Version"`
-	Scheme      PaymentScheme `json:"scheme"`
-	Network     Network       `json:"network"`
-	Extra       ExtraData     `json:"extra,omitempty"`
-}
-
 // VerificationResult contains the result of payment verification
 type VerificationResult struct {
 	IsValid       bool       `json:"isValid"`
@@ -359,7 +326,7 @@ type SettlementResult struct {
 
 // ClientConfig contains configuration for blockchain clients
 type ClientConfig struct {
-	Network       Network           `json:"network"`
+	Network       string            `json:"network"`
 	RPCUrl        string            `json:"rpcUrl"`
 	GRPCUrl       string            `json:"grpcUrl,omitempty"`
 	WSUrl         string            `json:"wsUrl,omitempty"`
@@ -370,16 +337,19 @@ type ClientConfig struct {
 	Extra         ExtraData         `json:"extra,omitempty"`
 	AcceptedDenom string            `json:"acceptedDenom"`
 	HexSeed       string            `json:"hexSeed"`
+	ChainFamily   ChainFamily       `json:"chainFamily"`
+	Scheme        string            `json:"scheme"`
+	X402Version   int               `json:"x402Version"`
 }
 
 // X402Config contains global configuration for the x402 library
 type X402Config struct {
-	DefaultTimeout time.Duration            `json:"defaultTimeout,omitempty"`
-	RetryCount     int                      `json:"retryCount,omitempty"`
-	Clients        map[Network]ClientConfig `json:"clients,omitempty"`
-	LogLevel       string                   `json:"logLevel,omitempty"`
-	EnableMetrics  bool                     `json:"enableMetrics,omitempty"`
-	Extra          ExtraData                `json:"extra,omitempty"`
+	DefaultTimeout time.Duration           `json:"defaultTimeout,omitempty"`
+	RetryCount     int                     `json:"retryCount,omitempty"`
+	Clients        map[string]ClientConfig `json:"clients,omitempty"`
+	LogLevel       string                  `json:"logLevel,omitempty"`
+	EnableMetrics  bool                    `json:"enableMetrics,omitempty"`
+	Extra          ExtraData               `json:"extra,omitempty"`
 }
 
 // Error types
@@ -432,21 +402,4 @@ func (pr *PaymentRequirements) Validate() error {
 	}
 
 	return nil
-}
-
-// Helper functions for network classification
-func (n Network) IsEVM() bool {
-	return n == NetworkPolygon || n == NetworkPolygonAmoy || n == NetworkBaseSepolia || n == NetworkBase
-}
-
-func (n Network) IsSolana() bool {
-	return n == NetworkSolanaMainnet || n == NetworkSolanaDevnet
-}
-
-func (n Network) IsCosmos() bool {
-	return n == NetworkCosmosHub || n == NetworkCosmosLocal || n == NetworkOsmosisMainnet || n == NetworkNobleMainnet
-}
-
-func (n Network) String() string {
-	return string(n)
 }

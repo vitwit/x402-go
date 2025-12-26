@@ -51,12 +51,12 @@ var _ Client = (*EVMClient)(nil)
 // EVMClient provides basic Ethereum functionality
 type EVMClient struct {
 	rpcURL     string
-	network    x402types.Network
+	network    string
 	client     *ethclient.Client
 	privateKey *ecdsa.PrivateKey
 }
 
-func NewEVMClient(network x402types.Network, rpcURL string, privKeyHex string) (*EVMClient, error) {
+func NewEVMClient(network string, rpcURL string, privKeyHex string) (*EVMClient, error) {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ethereum RPC: %w", err)
@@ -78,11 +78,10 @@ func NewEVMClient(network x402types.Network, rpcURL string, privKeyHex string) (
 // Close implements Client.
 func (e *EVMClient) Close() {
 	e.client.Close()
-
 }
 
 // GetNetwork implements Client.
-func (e *EVMClient) GetNetwork() types.Network {
+func (e *EVMClient) GetNetwork() string {
 	return e.network
 }
 
@@ -444,7 +443,6 @@ func (e *EVMClient) VerifyPayment(
 	ctx context.Context,
 	payload *x402types.VerifyRequest,
 ) (*x402types.VerificationResult, error) {
-
 	if e.rpcURL == "" {
 		return &x402types.VerificationResult{
 			IsValid:       false,
@@ -503,7 +501,6 @@ func (e *EVMClient) VerifyPayment(
 	name, ok := payload.PaymentRequirements.Extra["name"].(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid type for field \"name\": expected string but got %T", payload.PaymentRequirements.Extra["name"])
-
 	}
 	version, ok := payload.PaymentRequirements.Extra["version"].(string)
 	if !ok {
@@ -655,7 +652,6 @@ func (e *EVMClient) VerifyPayment(
 		Confirmations: 0,
 		Payer:         p.Authorization.From,
 	}, nil
-
 }
 
 // VerifyTypedDataSignature verifies that `signatureHex` correctly signs `digest`
