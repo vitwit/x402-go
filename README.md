@@ -6,6 +6,8 @@ A complete Go implementation of the x402 payment protocol for multi-chain paymen
 
 The x402 Go library provides a comprehensive solution for building payment facilitators that support multiple blockchain networks including Ethereum Virtual Machine (EVM) chains, Solana, and Cosmos SDK-based networks.
 
+While the library is chain-agnostic, it includes first-class support for Cosmos SDK–based chains, enabling x402 payments with Cosmos-native tokens.
+
 ### Key Features
 
 - **Multi-Chain Support**: EVM (Polygon, Base), Solana, Cosmos
@@ -25,7 +27,7 @@ For a complete, step-by-step integration guide, see:
 ## Installation
 
 ``` sh
-go get github.com/vitwit/x402
+go get github.com/vitwit/x402-go
 ```
 
 Optional dependencies:
@@ -37,16 +39,15 @@ go get github.com/prometheus/client_golang/prometheus
 
 ### Supported Networks
 
+- **Cosmos Networks**
 - **EVM Networks**
 - **Solana Network**
-- **Cosmos Networks**
-
 
 ### Supported Token Standards
 
+- **Native**: Native Cosmos blockchain tokens
 - **ERC20**: Ethereum-compatible token standard
 - **SPL**: Solana Program Library tokens
-- **Native**: Native Cosmos blockchain tokens
 
 ## Core Concepts
 
@@ -200,8 +201,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Roadmap
 
+- [ ] Expanded Cosmos SDK chain support
 - [ ] Additional EVM chains support
-- [ ] More Cosmos SDK chains
 - [ ] Enhanced gas optimization
 - [ ] Metrics and monitoring integration
 - [ ] GraphQL API support
