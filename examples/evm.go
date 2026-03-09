@@ -111,11 +111,25 @@ func exampleEvmVerification(client *x402.X402) error {
 	}
 	bz, _ := json.Marshal(p1)
 
+	// V2: Payload is a map, scheme/network come from Accepted (PaymentRequirements)
+	var payloadMap map[string]interface{}
+	_ = json.Unmarshal(bz, &payloadMap)
+
 	paymentPayload := types.PaymentPayload{
 		X402Version: 1,
-		Scheme:      "exact",
-		Network:     "base-sepolia",
-		Payload:     string(bz),
+		Payload:     payloadMap,
+		Accepted: types.PaymentRequirements{
+			Scheme:            "exact",
+			Network:           "base-sepolia",
+			Asset:             "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+			Amount:            "10000",
+			PayTo:             auth.To,
+			MaxTimeoutSeconds: 60,
+			Extra: map[string]interface{}{
+				"name":    "USDC",
+				"version": "2",
+			},
+		},
 	}
 
 	//------------------------------------------------------------
@@ -128,10 +142,7 @@ func exampleEvmVerification(client *x402.X402) error {
 		PaymentRequirements: types.PaymentRequirements{
 			Scheme:            "exact",
 			Network:           "base-sepolia",
-			MaxAmountRequired: "10000",
-			Resource:          "https://api.example.com/data",
-			Description:       "Premium data",
-			MimeType:          "application/json",
+			Amount:            "10000",
 			PayTo:             auth.To, // must match authorization.to
 			MaxTimeoutSeconds: 60,
 			Asset:             "0x036CbD53842c5426634e7929541eC2318f3dCF7e",

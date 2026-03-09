@@ -21,7 +21,7 @@ type ChainPaymentPayload interface {
 // PaymentContext wraps immutable x402 spec types
 // for internal processing.
 type PaymentContext struct {
-	Version      X402Version
+	Version      X402VersionConst
 	Requirements PaymentRequirements
 	Payload      PaymentPayload
 

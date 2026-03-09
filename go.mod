@@ -2,8 +2,6 @@ module github.com/vitwit/x402
 
 go 1.24.0
 
-toolchain go1.24.10
-
 require (
 	github.com/cometbft/cometbft v0.38.19 // indirect
 	github.com/cosmos/cosmos-sdk v0.53.4

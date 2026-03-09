@@ -70,7 +70,7 @@ func (c *CosmosClient) VerifyPayment(
 		}, nil
 	}
 
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
+	data, err := payload.PaymentPayload.PayloadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}
@@ -122,7 +122,7 @@ func (c *CosmosClient) VerifyPayment(
 			if err != nil {
 				return nil, err
 			}
-			// reqAmt, _ := decimal.NewFromString(payload.PaymentRequirements.MaxAmountRequired)
+			// reqAmt, _ := decimal.NewFromString(payload.PaymentRequirements.Amount)
 
 			// if sentAmt.LessThanOrEqual(reqAmt) {
 			// 	return &x402types.VerificationResult{IsValid: false, InvalidReason: "insufficient payment"}, nil
@@ -160,9 +160,9 @@ func (c *CosmosClient) SettlePayment(
 	vr, err := c.VerifyPayment(ctx, payload)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
-			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Amount:    payload.PaymentRequirements.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
 			Error:     err.Error(),
 			Success:   false,
@@ -172,9 +172,9 @@ func (c *CosmosClient) SettlePayment(
 
 	if !vr.IsValid {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
-			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Amount:    payload.PaymentRequirements.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
 			Error:     vr.Error,
 			Success:   false,
@@ -184,7 +184,7 @@ func (c *CosmosClient) SettlePayment(
 
 	if c.grpc == nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -194,7 +194,7 @@ func (c *CosmosClient) SettlePayment(
 		}, fmt.Errorf("RPC client not initialized")
 	}
 
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
+	data, err := payload.PaymentPayload.PayloadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}
@@ -202,7 +202,7 @@ func (c *CosmosClient) SettlePayment(
 	var header types.CosmosPaymentPayload
 	if err := json.Unmarshal([]byte(data), &header); err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -216,7 +216,7 @@ func (c *CosmosClient) SettlePayment(
 	if err != nil {
 		return &x402types.SettlementResult{
 			Success:   false,
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -234,7 +234,7 @@ func (c *CosmosClient) SettlePayment(
 		return &x402types.SettlementResult{
 			Success:   false,
 			Error:     err.Error(),
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -246,7 +246,7 @@ func (c *CosmosClient) SettlePayment(
 		return &x402types.SettlementResult{
 			Success:   false,
 			Error:     broadcastResult.TxResponse.RawLog,
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -261,7 +261,7 @@ func (c *CosmosClient) SettlePayment(
 			if txResult.TxResponse.Code == 0 {
 				return &x402types.SettlementResult{
 					Success:   true,
-					NetworkId: payload.PaymentPayload.Network,
+					NetworkId: payload.PaymentRequirements.Network,
 					Error:     broadcastResult.TxResponse.RawLog,
 					Extra: x402types.ExtraData{
 						"code":      broadcastResult.TxResponse.Code,
@@ -277,7 +277,7 @@ func (c *CosmosClient) SettlePayment(
 			return &x402types.SettlementResult{
 				Success:   false,
 				Error:     txResult.TxResponse.RawLog,
-				NetworkId: payload.PaymentPayload.Network,
+				NetworkId: payload.PaymentRequirements.Network,
 				Asset:     payload.PaymentRequirements.Asset,
 				Amount:    vr.Amount,
 				Recipient: payload.PaymentRequirements.PayTo,
@@ -290,7 +290,7 @@ func (c *CosmosClient) SettlePayment(
 	return &x402types.SettlementResult{
 		Success:   false,
 		Error:     "timeout waiting for confirmation",
-		NetworkId: payload.PaymentPayload.Network,
+		NetworkId: payload.PaymentRequirements.Network,
 		Asset:     payload.PaymentRequirements.Asset,
 		Amount:    vr.Amount,
 		Recipient: payload.PaymentRequirements.PayTo,
@@ -305,8 +305,28 @@ func (c *CosmosClient) WaitForConfirmation(ctx context.Context, txHash string, c
 	}, nil
 }
 
-func (c *CosmosClient) GetNetwork() string { return c.network }
+// GetNetwork implements Client.
+func (c *CosmosClient) GetNetwork() string {
+	return c.network
+}
+
+// ID implements types.Plugin (V2)
+func (c *CosmosClient) ID() string {
+	return c.network
+}
+
+// Type implements types.Plugin (V2)
+func (c *CosmosClient) Type() types.PluginType {
+	return types.PluginChain
+}
+
+// Initialize implements types.Plugin (V2)
+func (c *CosmosClient) Initialize(ctx context.Context, config interface{}) error {
+	return nil
+}
 
 func (c *CosmosClient) Close() {
-	c.grpc.Close()
+	if c.grpc != nil {
+		c.grpc.Close()
+	}
 }

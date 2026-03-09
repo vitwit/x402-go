@@ -1,17 +1,48 @@
 package types
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
 )
 
-// X402Version represents the version of the x402 protocol
-type X402Version int
+// X402VersionConst represents the version of the x402 protocol
+type X402VersionConst int
 
 const (
-	X402Version1 X402Version = 1
+	X402Version1 X402VersionConst = 1
+	X402Version2 X402VersionConst = 2
+)
+
+// x402 Header Constants (V2)
+const (
+	HeaderPaymentRequired  = "PAYMENT-REQUIRED"
+	HeaderPaymentSignature = "PAYMENT-SIGNATURE"
+	HeaderPaymentResponse  = "PAYMENT-RESPONSE"
+	HeaderSignInWithX      = "SIGN-IN-WITH-X"
+	HeaderSessionID        = "X-SESSION-ID"
+)
+
+// ============================================================================
+// Plugin System (V2)
+// ============================================================================
+
+// Plugin defines the interface for x402 protocol extensions (chains, schemes)
+type Plugin interface {
+	ID() string
+	Type() PluginType
+	Initialize(ctx context.Context, config interface{}) error
+}
+
+type PluginType string
+
+const (
+	PluginChain  PluginType = "chain"
+	PluginScheme PluginType = "scheme"
+	PluginAsset  PluginType = "asset"
 )
 
 // PaymentScheme represents different payment schemes
@@ -31,100 +62,178 @@ const (
 	TokenStandardNative TokenStandard = "native"
 )
 
-type SupportedItem struct {
-	X402Version int    `json:"x402Version"`
-	Scheme      string `json:"scheme"`
-	Network     string `json:"network"`
+// ============================================================================
+// View Interfaces (matching Coinbase)
+// ============================================================================
+
+// PaymentRequirementsView is a unified interface for payment requirements.
+// Both V1 and V2 types implement this to work with selectors/policies/hooks.
+type PaymentRequirementsView interface {
+	GetScheme() string
+	GetNetwork() string // Returns network as string
+	GetAsset() string
+	GetAmount() string // V1: MaxAmountRequired, V2: Amount
+	GetPayTo() string
+	GetMaxTimeoutSeconds() int
+	GetExtra() map[string]interface{}
 }
 
-type SupportedResponse struct {
-	Kinds []SupportedItem `json:"kinds"`
+// PaymentPayloadView is a unified interface for payment payloads.
+// Both V1 and V2 types implement this to work with hooks.
+type PaymentPayloadView interface {
+	GetVersion() int
+	GetScheme() string
+	GetNetwork() string
+	GetPayload() map[string]interface{}
 }
 
-// PaymentRequirements defines the requirements a resource server accepts for payment.
-type PaymentRequirements struct {
-	// Scheme of the payment protocol to use (e.g., "exact", "stream").
-	Scheme string `json:"scheme"`
+// PaymentRequirementsSelector chooses which payment option to use.
+// Works with unified view interface.
+type PaymentRequirementsSelector func(requirements []PaymentRequirementsView) PaymentRequirementsView
 
-	// Network of the blockchain to send payment on (e.g., "ethereum-mainnet").
-	Network string `json:"network"`
+// PaymentPolicy filters or transforms payment requirements.
+// Works with unified view interface.
+type PaymentPolicy func(requirements []PaymentRequirementsView) []PaymentRequirementsView
 
-	// Maximum amount required to pay for the resource in atomic units of the asset.
-	// Represented as a string because Go does not support uint256.
-	MaxAmountRequired string `json:"maxAmountRequired"`
-
-	// URL of the resource to pay for.
-	Resource string `json:"resource"`
-
-	// Description of the resource being purchased.
-	Description string `json:"description"`
-
-	// MIME type of the resource response (e.g., "application/json").
-	MimeType string `json:"mimeType"`
-
-	// Output schema of the resource response, if applicable.
-	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"`
-
-	// Address to which the payment must be sent.
-	PayTo string `json:"payTo"`
-
-	// Maximum time in seconds for the resource server to respond.
-	MaxTimeoutSeconds int `json:"maxTimeoutSeconds"`
-
-	// Address of the EIP-3009 compliant ERC20 contract.
-	Asset string `json:"asset"`
-
-	// Extra information about payment details specific to the scheme.
-	// For the `exact` scheme on EVM, this may include fields like `name` and `version`.
-	Extra map[string]interface{} `json:"extra,omitempty"`
+// DefaultPaymentSelector chooses the first available payment option.
+func DefaultPaymentSelector(requirements []PaymentRequirementsView) PaymentRequirementsView {
+	if len(requirements) == 0 {
+		panic("no payment requirements available")
+	}
+	return requirements[0]
 }
 
-// X402Response represents a server response that includes supported payment options.
-type X402Response struct {
-	// Version of the x402 payment protocol.
+// ============================================================================
+// Lifecycle Hooks (V2)
+// ============================================================================
+
+// HookType defines the type of lifecycle hook
+type HookType string
+
+const (
+	HookBeforeVerify HookType = "beforeVerify"
+	HookAfterVerify  HookType = "afterVerify"
+	HookBeforeSettle HookType = "beforeSettle"
+	HookAfterSettle  HookType = "afterSettle"
+)
+
+// HookContext provides context information to lifecycle hooks
+type HookContext struct {
+	Timestamp time.Time
+	Request   *VerifyRequest
+	Result    interface{} // VerificationResult or SettlementResult
+	Headers   map[string]string
+}
+
+// HookFunc is the function signature for a lifecycle hook
+type HookFunc func(ctx context.Context, hCtx *HookContext) error
+
+// ============================================================================
+// Network type (matching Coinbase)
+// ============================================================================
+
+// Network represents a blockchain network identifier in CAIP-2 format
+// Format: namespace:reference (e.g., "eip155:1" for Ethereum mainnet)
+type Network string
+
+// Parse splits the network into namespace and reference components
+func (n Network) Parse() (namespace, reference string, err error) {
+	parts := strings.Split(string(n), ":")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid network format: %s", n)
+	}
+	return parts[0], parts[1], nil
+}
+
+// Match checks if this network matches a pattern (supports wildcards)
+func (n Network) Match(pattern Network) bool {
+	if n == pattern {
+		return true
+	}
+
+	nStr := string(n)
+	patternStr := string(pattern)
+
+	if strings.HasSuffix(patternStr, ":*") {
+		prefix := strings.TrimSuffix(patternStr, "*")
+		return strings.HasPrefix(nStr, prefix)
+	}
+
+	if strings.HasSuffix(nStr, ":*") {
+		prefix := strings.TrimSuffix(nStr, "*")
+		return strings.HasPrefix(patternStr, prefix)
+	}
+
+	return false
+}
+
+// ============================================================================
+// Verify / Settle Response types (matching Coinbase)
+// ============================================================================
+
+// VerifyResponse contains the verification result (matching Coinbase)
+type VerifyResponse struct {
+	IsValid        bool   `json:"isValid"`
+	InvalidReason  string `json:"invalidReason,omitempty"`
+	InvalidMessage string `json:"invalidMessage,omitempty"`
+	Payer          string `json:"payer,omitempty"`
+}
+
+// SettleResponse contains the settlement result (matching Coinbase)
+type SettleResponse struct {
+	Success      bool    `json:"success"`
+	ErrorReason  string  `json:"errorReason,omitempty"`
+	ErrorMessage string  `json:"errorMessage,omitempty"`
+	Payer        string  `json:"payer,omitempty"`
+	Transaction  string  `json:"transaction"`
+	Network      Network `json:"network"`
+}
+
+// ============================================================================
+// ResourceConfig (matching Coinbase)
+// ============================================================================
+
+// Price represents a price that can be specified in various formats
+type Price interface{}
+
+// AssetAmount represents an amount of a specific asset
+type AssetAmount struct {
+	Asset  string                 `json:"asset"`
+	Amount string                 `json:"amount"`
+	Extra  map[string]interface{} `json:"extra,omitempty"`
+}
+
+// ResourceConfig defines payment configuration for a protected resource
+type ResourceConfig struct {
+	Scheme            string  `json:"scheme"`
+	PayTo             string  `json:"payTo"`
+	Price             Price   `json:"price"`
+	Network           Network `json:"network"`
+	MaxTimeoutSeconds int     `json:"maxTimeoutSeconds,omitempty"`
+}
+
+// PartialPaymentPayload contains only x402Version for version detection
+type PartialPaymentPayload struct {
 	X402Version int `json:"x402Version"`
-
-	// List of payment requirements that the resource server accepts.
-	Accepts []PaymentRequirements `json:"accepts"`
-
-	// Message from the resource server indicating any processing error.
-	Error string `json:"error"`
 }
+
+// ============================================================================
+// Internal VerifyRequest (used by vitwit's verification/settlement services)
+// ============================================================================
 
 // VerifyRequest represents the payload sent to a facilitator to verify a payment.
+// This is the internal representation used by vitwit's SDK services.
 type VerifyRequest struct {
 	// Version of the x402 payment protocol.
 	X402Version int `json:"x402Version"`
 
-	// Encoded payment header from the client.
+	// Payment payload (V2 format — map-based)
 	PaymentPayload PaymentPayload `json:"paymentPayload"`
 
-	// Payment requirements being verified against.
+	// Payment requirements being verified against (V2 format)
 	PaymentRequirements PaymentRequirements `json:"paymentRequirements"`
 
 	Network string `json:"network"`
-}
-
-type PaymentPayload struct {
-	// Version of the x402 payment protocol.
-	X402Version int `json:"x402Version"`
-
-	Scheme string `json:"scheme"`
-
-	Network string `json:"network"`
-
-	Payload string `json:"payload"`
-}
-
-// VerifyResponse represents the facilitator's verification result.
-type VerifyResponse struct {
-	// Indicates whether the payment is valid.
-	IsValid bool `json:"isValid"`
-
-	// Provides a reason if the payment is invalid, otherwise null.
-	InvalidReason string `json:"invalidReason"`
-
-	Payer string `json:"payer"`
 }
 
 // Validate checks that the VerifyRequest contains all required fields.
@@ -133,12 +242,36 @@ func (v *VerifyRequest) Validate() error {
 		return fmt.Errorf("x402Version must be greater than 0")
 	}
 
-	if v.PaymentPayload.Payload == "" {
+	if len(v.PaymentPayload.Payload) == 0 {
 		return fmt.Errorf("PaymentPayload is required")
 	}
 
-	return v.PaymentRequirements.Validate()
+	if v.PaymentRequirements.Scheme == "" {
+		return fmt.Errorf("paymentRequirements.scheme is required")
+	}
+
+	if v.PaymentRequirements.Network == "" {
+		return fmt.Errorf("paymentRequirements.network is required")
+	}
+
+	if v.PaymentRequirements.PayTo == "" {
+		return fmt.Errorf("paymentRequirements.payTo is required")
+	}
+
+	if v.PaymentRequirements.Asset == "" {
+		return fmt.Errorf("paymentRequirements.asset is required")
+	}
+
+	if v.PaymentRequirements.MaxTimeoutSeconds <= 0 {
+		return fmt.Errorf("paymentRequirements.maxTimeoutSeconds must be greater than 0")
+	}
+
+	return nil
 }
+
+// ============================================================================
+// Chain-specific payment payload types (vitwit extensions for Cosmos/Solana/EVM)
+// ============================================================================
 
 type CosmosPaymentPayload struct {
 	Version   int               `json:"version"`
@@ -172,12 +305,12 @@ type SolanaPaymentData struct {
 	Recipient       string `json:"recipient"` // Base58 public key of receiver
 	TxBase64        string `json:"txBase64"`  // base64-encoded transaction bytes
 	RecentBlockhash string `json:"recentBlockhash,omitempty"`
-	PublicKey       string `json:"publicKey"` // sender’s public key (for verification)
+	PublicKey       string `json:"publicKey"` // sender's public key (for verification)
 	FeePayer        string `json:"feePayer,omitempty"`
 	Memo            string `json:"memo,omitempty"`
 }
 
-// After decoding PaymentPayload.Payload (string → base64 → json)
+// After decoding PaymentPayload.Payload (map → json)
 type EvmPaymentPayload struct {
 	Type string `json:"type"` // "raw_tx", "eip3009", "eip2612"
 
@@ -187,7 +320,7 @@ type EvmPaymentPayload struct {
 }
 
 type EIP3009Payload struct {
-	Signature     string               `json:"signature"` // The 65-byte ECDSA signature (v,r,s)
+	Signature     string              `json:"signature"` // The 65-byte ECDSA signature (v,r,s)
 	Authorization EIP3009Authorization `json:"authorization"`
 }
 
@@ -240,7 +373,6 @@ type EIP712Domain struct {
 
 // EIP712PermitMsg covers both EIP-2612 and EIP-3009 message types
 type EIP712PermitMsg struct {
-	// Common fields
 	Owner       string `json:"owner,omitempty"`       // EIP-2612
 	Spender     string `json:"spender,omitempty"`     // EIP-2612
 	From        string `json:"from,omitempty"`        // EIP-3009
@@ -249,8 +381,12 @@ type EIP712PermitMsg struct {
 	ValidAfter  string `json:"validAfter,omitempty"`  // EIP-3009
 	ValidBefore string `json:"validBefore,omitempty"` // EIP-3009
 	Nonce       string `json:"nonce"`                 // EIP-2612 or EIP-3009
-	Deadline    string `json:"deadline,omitempty"`    // EIP-2612
+	Deadline    string `json:"deadline,omitempty"`     // EIP-2612
 }
+
+// ============================================================================
+// Token & Amount types
+// ============================================================================
 
 // TokenInfo contains information about the payment token
 type TokenInfo struct {
@@ -281,10 +417,14 @@ type Amount struct {
 // ExtraData contains additional payment-specific data
 type ExtraData map[string]interface{}
 
+// ============================================================================
+// Internal SDK result types (used by verification/settlement services)
+// ============================================================================
+
 // VerificationResult contains the result of payment verification
 type VerificationResult struct {
 	IsValid       bool       `json:"isValid"`
-	InvalidReason string     `josn:"invalidReason"`
+	InvalidReason string     `json:"invalidReason"`
 	Amount        string     `json:"amount,omitempty"`
 	Token         string     `json:"token,omitempty"`
 	Recipient     string     `json:"recipient,omitempty"`
@@ -324,6 +464,10 @@ type SettlementResult struct {
 	Fees          string     `json:"fees,omitempty"`
 }
 
+// ============================================================================
+// Client/Config types
+// ============================================================================
+
 // ClientConfig contains configuration for blockchain clients
 type ClientConfig struct {
 	Network       string            `json:"network"`
@@ -352,7 +496,10 @@ type X402Config struct {
 	Extra          ExtraData               `json:"extra,omitempty"`
 }
 
+// ============================================================================
 // Error types
+// ============================================================================
+
 type X402Error struct {
 	Code    string      `json:"code"`
 	Message string      `json:"message"`
@@ -374,32 +521,75 @@ const (
 	ErrSettlementFailed    = "SETTLEMENT_FAILED"
 	ErrNetworkError        = "NETWORK_ERROR"
 	ErrConfigError         = "CONFIG_ERROR"
+	ErrNotImplemented      = "NOT_IMPLEMENTED"
 )
 
-func (pr *PaymentRequirements) Validate() error {
-	if pr.Scheme == "" {
-		return fmt.Errorf("paymentRequirements.scheme is required")
-	}
+// ============================================================================
+// Resource Server Extension interface (matching Coinbase)
+// ============================================================================
 
-	if pr.Network == "" {
-		return fmt.Errorf("paymentRequirements.network is required")
-	}
+// ResourceServerExtension interface for protocol extensions
+type ResourceServerExtension interface {
+	Key() string
+	EnrichDeclaration(declaration interface{}, transportContext interface{}) interface{}
+}
 
-	if pr.MaxAmountRequired == "" {
-		return fmt.Errorf("paymentRequirements.maxAmountRequired is required")
-	}
+// ============================================================================
+// Discovery Meta (V2)
+// ============================================================================
 
-	if pr.PayTo == "" {
-		return fmt.Errorf("paymentRequirements.payTo is required")
-	}
+// ServiceMetadata defines x402 service discovery metadata (V2)
+type ServiceMetadata struct {
+	X402Version int                    `json:"x402Version"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Icon        string                 `json:"icon,omitempty"`
+	Website     string                 `json:"website,omitempty"`
+	Endpoints   []EndpointMetadata     `json:"endpoints"`
+	Extensions  map[string]interface{} `json:"extensions,omitempty"`
+}
 
-	if pr.Asset == "" {
-		return fmt.Errorf("paymentRequirements.asset is required")
-	}
+// EndpointMetadata defines metadata for a specific payment-protected endpoint
+type EndpointMetadata struct {
+	Path         string           `json:"path"`
+	Method       string           `json:"method"`
+	Requirements []PaymentRequired `json:"requirements"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
 
-	if pr.MaxTimeoutSeconds <= 0 {
-		return fmt.Errorf("paymentRequirements.maxTimeoutSeconds must be greater than 0")
-	}
+// ============================================================================
+// Wallet & Sessions (V2)
+// ============================================================================
 
-	return nil
+// SessionInfo defines a wallet-controlled session (V2)
+type SessionInfo struct {
+	ID        string    `json:"id"`
+	Address   string    `json:"address"`
+	Network   Network   `json:"network"`
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	Proof     string    `json:"proof,omitempty"` // SIWx proof
+}
+
+// SIWxMessage defines the structure of a Sign-In-With-X message (CAIP-122)
+type SIWxMessage struct {
+	Domain    string    `json:"domain"`
+	Address   string    `json:"address"`
+	Statement string    `json:"statement,omitempty"`
+	URI       string    `json:"uri"`
+	Version   string    `json:"version"`
+	ChainID   string    `json:"chainId"`
+	Nonce     string    `json:"nonce"`
+	IssuedAt  time.Time `json:"issuedAt"`
+}
+
+// Verify verifies the SIWx message against a signature (V2)
+func (m *SIWxMessage) Verify(signature string) (bool, error) {
+	// In a real implementation, this would use the appropriate crypto library
+	// for the network (EVM, SVM, Cosmos) identified in ChainID.
+	// For this SDK, we'll provide a placeholder that validates basic format.
+	if signature == "" || m.Address == "" || m.Nonce == "" {
+		return false, nil
+	}
+	return true, nil
 }

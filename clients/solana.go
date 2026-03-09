@@ -61,6 +61,21 @@ func (s *SolanaClient) GetNetwork() string {
 	return s.network
 }
 
+// ID implements types.Plugin (V2)
+func (s *SolanaClient) ID() string {
+	return s.network
+}
+
+// Type implements types.Plugin (V2)
+func (s *SolanaClient) Type() types.PluginType {
+	return types.PluginChain
+}
+
+// Initialize implements types.Plugin (V2)
+func (s *SolanaClient) Initialize(ctx context.Context, config interface{}) error {
+	return nil
+}
+
 // SettlePayment implements Client.
 func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.VerifyRequest) (*x402types.SettlementResult, error) {
 	// 1) Decode wrapper JSON (same as VerifyPayment)
@@ -68,9 +83,9 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	vr, err := s.VerifyPayment(ctx, payload)
 	if err != nil {
 		return &types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
-			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Amount:    payload.PaymentRequirements.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
 			Error:     err.Error(),
 			Success:   false,
@@ -80,9 +95,9 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 
 	if !vr.IsValid {
 		return &types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
-			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Amount:    payload.PaymentRequirements.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
 			Error:     vr.Error,
 			Success:   false,
@@ -93,7 +108,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	wrapper, err := decodeTopLevelPaymentPayload(payload.PaymentPayload.Payload)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -107,7 +122,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	txBytes, err := base64.StdEncoding.DecodeString(wrapper.Transaction)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -121,7 +136,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	tx, err := solana.TransactionFromDecoder(bin.NewBinDecoder(txBytes))
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -148,7 +163,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	required := int(tx.Message.Header.NumRequiredSignatures)
 	if required == 0 || len(tx.Signatures) < required {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -161,7 +176,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	// 6) Verify user signatures (skip fee payer index). This uses the helper you already added.
 	if err := verifyUserSignatures(tx.Message, tx.Signatures, feePayer); err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -175,7 +190,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	msgBytes, err := getSignBytes(tx.Message)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -188,7 +203,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	if err := verifyBlockhashFreshness(ctx, s.client, tx.Message); err != nil {
 		fmt.Println("Err = ", err)
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -202,7 +217,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 	sigBytes := ed25519.Sign(s.feePayerSK, msgBytes)
 	if len(sigBytes) != ed25519.SignatureSize {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    vr.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -250,7 +265,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 		raw, err := tx.MarshalBinary() // Transaction.Bytes() returns wire-format bytes (gagliardetto)
 		if err != nil {
 			return &x402types.SettlementResult{
-				NetworkId: payload.PaymentPayload.Network,
+				NetworkId: payload.PaymentRequirements.Network,
 				Asset:     payload.PaymentRequirements.Asset,
 				Amount:    vr.Amount,
 				Recipient: payload.PaymentRequirements.PayTo,
@@ -263,7 +278,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 		sentSig, err = s.client.SendRawTransaction(ctx, raw)
 		if err != nil {
 			return &x402types.SettlementResult{
-				NetworkId: payload.PaymentPayload.Network,
+				NetworkId: payload.PaymentRequirements.Network,
 				Asset:     payload.PaymentRequirements.Asset,
 				Amount:    vr.Amount,
 				Recipient: payload.PaymentRequirements.PayTo,
@@ -345,8 +360,8 @@ func validateSchemeAndNetworkPayload(payload *x402types.VerifyRequest) error {
 	// spec uses scheme string "exact-svm" per user-specified doc.
 	requiredScheme := "exact"
 
-	// PaymentPayload.Scheme (top-level) AND PaymentRequirements.Scheme must equal requiredScheme
-	if payload.PaymentPayload.Scheme != requiredScheme || payload.PaymentRequirements.Scheme != requiredScheme {
+	// PaymentRequirements.Scheme must equal requiredScheme
+	if payload.PaymentRequirements.Scheme != requiredScheme {
 		return errors.New(ErrUnsupportedScheme)
 	}
 
@@ -609,7 +624,7 @@ func (c *SolanaClient) validateSplTransferChecked(
 	}
 
 	// 4) Amount must equal maxAmountRequired exactly
-	reqAmt, err := decimal.NewFromString(preq.MaxAmountRequired)
+	reqAmt, err := decimal.NewFromString(preq.Amount)
 	if err != nil {
 		return nil, errors.New(ErrInvalidExactSvmPayload)
 	}
@@ -836,10 +851,10 @@ func NewSolanaClientWithFeePayer(network string, rpcURL string, feePayerPrivKeyH
 	}, nil
 }
 
-func decodeTopLevelPaymentPayload(payloadBase64 string) (*types.SolanaPaymentPayload, error) {
-	raw, err := base64.StdEncoding.DecodeString(payloadBase64)
+func decodeTopLevelPaymentPayload(payload map[string]interface{}) (*types.SolanaPaymentPayload, error) {
+	raw, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("invalid base64: %w", err)
+		return nil, fmt.Errorf("invalid payload: %w", err)
 	}
 
 	var hdr types.SolanaPaymentPayload

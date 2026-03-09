@@ -7,6 +7,7 @@ import (
 )
 
 type Client interface {
+	x402types.Plugin
 	VerifyPayment(ctx context.Context, payload *x402types.VerifyRequest) (*x402types.VerificationResult, error)
 	SettlePayment(ctx context.Context, payload *x402types.VerifyRequest) (*x402types.SettlementResult, error)
 	GetNetwork() string

@@ -25,6 +25,13 @@ type X402 struct {
 	timeout time.Duration
 
 	config *types.X402Config
+
+	// V2: Lifecycle Hooks
+	hooks map[types.HookType][]types.HookFunc
+
+	// V2: Plugin Registry
+	networks map[string]types.ChainFamily
+	plugins  map[string]types.Plugin
 }
 
 // New creates a new X402 instance with the given configuration
@@ -61,7 +68,31 @@ func New(cfg *types.X402Config, opts ...Option) *X402 {
 		x.logger,
 	)
 
+	x.hooks = make(map[types.HookType][]types.HookFunc)
+	x.networks = make(map[string]types.ChainFamily)
+	x.plugins = make(map[string]types.Plugin)
+
 	return x
+}
+
+// RegisterPlugin registers a protocol extension (V2)
+func (x *X402) RegisterPlugin(p types.Plugin) {
+	x.plugins[p.ID()] = p
+}
+
+// RegisterHook registers a lifecycle hook (V2)
+func (x *X402) RegisterHook(hookType types.HookType, fn types.HookFunc) {
+	x.hooks[hookType] = append(x.hooks[hookType], fn)
+}
+
+// runHooks executes all hooks of a given type
+func (x *X402) runHooks(ctx context.Context, hookType types.HookType, hCtx *types.HookContext) error {
+	for _, fn := range x.hooks[hookType] {
+		if err := fn(ctx, hCtx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // AddNetwork adds support for a specific network by creating the appropriate client
@@ -88,13 +119,7 @@ func (x *X402) addEVMNetwork(network string, config types.ClientConfig) error {
 		return fmt.Errorf("failed to create EVM client for %s: %w", network, err)
 	}
 
-	if err := x.verification.AddEVMClient(network, client, config); err != nil {
-		return err
-	}
-
-	if err := x.settlement.AddEVMClient(network, client, config); err != nil {
-		return err
-	}
+	x.plugins[network] = client // V2 Plugin Registration
 
 	return nil
 }
@@ -106,13 +131,7 @@ func (x *X402) addSolanaNetwork(network string, config types.ClientConfig) error
 		return fmt.Errorf("failed to create Solana client for %s: %w", network, err)
 	}
 
-	if err := x.verification.AddSolanaClient(network, client, config); err != nil {
-		return err
-	}
-
-	if err := x.settlement.AddSolanaClient(network, client, config); err != nil {
-		return err
-	}
+	x.plugins[network] = client // V2 Plugin Registration
 
 	return nil
 }
@@ -124,13 +143,7 @@ func (x *X402) addCosmosNetwork(network string, config types.ClientConfig) error
 		return fmt.Errorf("failed to create Cosmos client for %s: %w", network, err)
 	}
 
-	if err := x.verification.AddCosmosClient(network, client, config); err != nil {
-		return err
-	}
-
-	if err := x.settlement.AddCosmosClient(network, client, config); err != nil {
-		return err
-	}
+	x.plugins[network] = client // V2 Plugin Registration
 
 	return nil
 }
@@ -140,7 +153,39 @@ func (x *X402) Verify(
 	ctx context.Context,
 	payload *types.VerifyRequest,
 ) (*types.VerificationResult, error) {
-	return x.verification.Verify(ctx, payload)
+	hCtx := &types.HookContext{
+		Timestamp: time.Now(),
+		Request:   payload,
+	}
+
+	if err := x.runHooks(ctx, types.HookBeforeVerify, hCtx); err != nil {
+		return nil, err
+	}
+
+	// V2: Use plugin registry if available, otherwise fallback to legacy verification
+	var result *types.VerificationResult
+	var err error
+
+	network := payload.PaymentRequirements.Network
+	if p, ok := x.plugins[network]; ok && p.Type() == types.PluginChain {
+		// If the plugin implements a "Verify" method (not in base interface but common for chains)
+		if verifier, ok := p.(interface {
+			VerifyPayment(context.Context, *types.VerifyRequest) (*types.VerificationResult, error)
+		}); ok {
+			result, err = verifier.VerifyPayment(ctx, payload)
+		}
+	}
+
+	if result == nil && err == nil {
+		result, err = x.verification.Verify(ctx, payload)
+	}
+
+	hCtx.Result = result
+	if err := x.runHooks(ctx, types.HookAfterVerify, hCtx); err != nil {
+		return result, err
+	}
+
+	return result, err
 }
 
 // Settle settles a payment transaction
@@ -148,7 +193,38 @@ func (x *X402) Settle(
 	ctx context.Context,
 	payload *types.VerifyRequest,
 ) (*types.SettlementResult, error) {
-	return x.settlement.Settle(ctx, payload)
+	hCtx := &types.HookContext{
+		Timestamp: time.Now(),
+		Request:   payload,
+	}
+
+	if err := x.runHooks(ctx, types.HookBeforeSettle, hCtx); err != nil {
+		return nil, err
+	}
+
+	// V2: Use plugin registry if available
+	var result *types.SettlementResult
+	var err error
+
+	network := payload.PaymentRequirements.Network
+	if p, ok := x.plugins[network]; ok && p.Type() == types.PluginChain {
+		if settler, ok := p.(interface {
+			SettlePayment(context.Context, *types.VerifyRequest) (*types.SettlementResult, error)
+		}); ok {
+			result, err = settler.SettlePayment(ctx, payload)
+		}
+	}
+
+	if result == nil && err == nil {
+		result, err = x.settlement.Settle(ctx, payload)
+	}
+
+	hCtx.Result = result
+	if err := x.runHooks(ctx, types.HookAfterSettle, hCtx); err != nil {
+		return result, err
+	}
+
+	return result, err
 }
 
 // BatchVerify verifies multiple payments concurrently
@@ -156,14 +232,10 @@ func (x *X402) BatchVerify(
 	ctx context.Context,
 	payload []*types.VerifyRequest,
 ) ([]*types.VerificationResult, error) {
-	if len(payload) == 0 {
-		return nil, &types.X402Error{
-			Code:    types.ErrInvalidPayload,
-			Message: "number of payloads must match number of requirements",
-		}
+	return nil, &types.X402Error{
+		Code:    types.ErrNotImplemented,
+		Message: "BatchVerify not implemented",
 	}
-
-	panic("not implemented")
 }
 
 // BatchSettle settles multiple payments concurrently
@@ -171,16 +243,24 @@ func (x *X402) BatchSettle(
 	ctx context.Context,
 	requests []*types.VerifyRequest,
 ) ([]*types.SettlementResult, error) {
-	panic("not implemented")
+	return nil, &types.X402Error{
+		Code:    types.ErrNotImplemented,
+		Message: "BatchSettle not implemented",
+	}
+}
+
+// VerifySIWx verifies a Sign-In-With-X message and signature (V2)
+func (x *X402) VerifySIWx(ctx context.Context, msg *types.SIWxMessage, signature string) (bool, error) {
+	return msg.Verify(signature)
 }
 
 func (x *X402) Supported() (*types.SupportedResponse, error) {
 	caps := x.verification.Capabilities()
 
-	out := make([]types.SupportedItem, 0, len(caps))
+	out := make([]types.SupportedKind, 0, len(caps))
 
 	for _, cap := range caps {
-		out = append(out, types.SupportedItem{
+		out = append(out, types.SupportedKind{
 			X402Version: cap.X402Version,
 			Scheme:      string(cap.Scheme),
 			Network:     cap.Network,
@@ -190,6 +270,42 @@ func (x *X402) Supported() (*types.SupportedResponse, error) {
 	return &types.SupportedResponse{
 		Kinds: out,
 	}, nil
+}
+
+// Discovery returns V2-compliant service discovery metadata
+func (x *X402) Discovery() *types.ServiceMetadata {
+	caps := x.verification.Capabilities()
+	endpoints := make([]types.EndpointMetadata, 0)
+
+	// In a real implementation, this would be populated from actual protected resources.
+	// For this SDK, we'll generate metadata based on supported networks for a generic endpoint.
+	for _, cap := range caps {
+		endpoints = append(endpoints, types.EndpointMetadata{
+			Path:   "/api/protected",
+			Method: "POST",
+			Requirements: []types.PaymentRequired{
+				{
+					X402Version: 2,
+					Accepts: []types.PaymentRequirements{
+						{
+							Scheme:            string(cap.Scheme),
+							Network:           cap.Network,
+							Asset:             "USDC", // Default example
+							Amount:            "1.00",
+							MaxTimeoutSeconds: 300,
+						},
+					},
+				},
+			},
+		})
+	}
+
+	return &types.ServiceMetadata{
+		X402Version: 2,
+		Name:        "x402 Facilitator",
+		Description: "Vitwit x402 V2 Facilitator Service",
+		Endpoints:   endpoints,
+	}
 }
 
 // IsNetworkSupported checks if a network is supported

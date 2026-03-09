@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -85,6 +84,21 @@ func (e *EVMClient) GetNetwork() string {
 	return e.network
 }
 
+// ID implements types.Plugin (V2)
+func (e *EVMClient) ID() string {
+	return e.network
+}
+
+// Type implements types.Plugin (V2)
+func (e *EVMClient) Type() types.PluginType {
+	return types.PluginChain
+}
+
+// Initialize implements types.Plugin (V2)
+func (e *EVMClient) Initialize(ctx context.Context, config interface{}) error {
+	return nil
+}
+
 // SettlePayment implements Client.
 func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequest) (*types.SettlementResult, error) {
 	// 1) Re-verify the payment first (signature + basic checks + simulation)
@@ -96,10 +110,10 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	if !ver.IsValid {
 		return &types.SettlementResult{
 			Success:   false,
-			Error:     err.Error(),
-			NetworkId: payload.PaymentPayload.Network,
+			Error:     ver.InvalidReason,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
-			Amount:    payload.PaymentRequirements.MaxAmountRequired,
+			Amount:    payload.PaymentRequirements.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
 			Sender:    "",
 			Extra: x402types.ExtraData{
@@ -109,12 +123,12 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	}
 
 	// 2) Parse the payload to get the EIP-3009 data
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
+	data, err := payload.PaymentPayload.PayloadBytes()
 	if err != nil {
 		return &x402types.SettlementResult{
 			Success:   false,
-			Error:     fmt.Sprintf("invalid base64 payload: %w", err),
-			NetworkId: payload.PaymentPayload.Network,
+			Error:     fmt.Errorf("invalid base64 payload: %w", err).Error(),
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -128,8 +142,8 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	if err != nil {
 		return &x402types.SettlementResult{
 			Success:   false,
-			Error:     fmt.Sprintf("parse evm payload failed: %w", err),
-			NetworkId: payload.PaymentPayload.Network,
+			Error:     fmt.Errorf("parse evm payload failed: %w", err).Error(),
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -145,7 +159,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	if e.privateKey == nil {
 		return &x402types.SettlementResult{
 			Success:   false,
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -164,7 +178,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	if err != nil {
 		return &x402types.SettlementResult{
 			Success:   false,
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -179,7 +193,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	value, err := strconv.Atoi(p.Authorization.Value)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -195,7 +209,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	vb, err := strconv.Atoi(p.Authorization.ValidBefore)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -211,7 +225,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	va, err := strconv.Atoi(p.Authorization.ValidAfter)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -236,7 +250,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -257,7 +271,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	nonce, err := e.client.PendingNonceAt(ctx, facilitatorAddr)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -278,7 +292,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	estimatedGas, err := e.client.EstimateGas(ctx, msg)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -299,7 +313,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	chainID, err := e.client.NetworkID(ctx)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -315,7 +329,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	gasTip, err := e.client.SuggestGasTipCap(ctx)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -331,7 +345,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	gasFeeCap, err := e.client.SuggestGasPrice(ctx)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -358,7 +372,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	signedTx, err := goethtypes.SignTx(tx, goethtypes.NewLondonSigner(chainID), e.privateKey)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -377,7 +391,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	err = e.client.SendTransaction(ctx, signedTx)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -393,7 +407,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	receipt, err := bind.WaitMined(ctx, e.client, signedTx)
 	if err != nil {
 		return &x402types.SettlementResult{
-			NetworkId: payload.PaymentPayload.Network,
+			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    ver.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
@@ -456,7 +470,7 @@ func (e *EVMClient) VerifyPayment(
 	// -------------------------------------------------------------
 	// 1. Decode Base64
 	// -------------------------------------------------------------
-	data, err := base64.StdEncoding.DecodeString(payload.PaymentPayload.Payload)
+	data, err := payload.PaymentPayload.PayloadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}
@@ -485,7 +499,7 @@ func (e *EVMClient) VerifyPayment(
 	// -------------------------------------------------------------
 	// 3. Validate scheme + network
 	// -------------------------------------------------------------
-	if payload.PaymentPayload.Scheme != "exact" || req.Scheme != "exact" {
+	if payload.PaymentRequirements.Scheme != "exact" || req.Scheme != "exact" {
 		return &x402types.VerificationResult{
 			IsValid:       false,
 			InvalidReason: "unsupported_scheme",
@@ -619,9 +633,9 @@ func (e *EVMClient) VerifyPayment(
 		return nil, fmt.Errorf("invalid authorization value: %s", p.Authorization.Value)
 	}
 
-	requiredBI, ok := new(big.Int).SetString(req.MaxAmountRequired, 10)
+	requiredBI, ok := new(big.Int).SetString(req.Amount, 10)
 	if !ok {
-		return nil, fmt.Errorf("invalid maxAmountRequired: %s", req.MaxAmountRequired)
+		return nil, fmt.Errorf("invalid maxAmountRequired: %s", req.Amount)
 	}
 
 	if bal.Cmp(requiredBI) < 0 {
