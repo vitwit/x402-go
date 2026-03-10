@@ -60,9 +60,10 @@ func (s *VerificationService) Capabilities() []types.NetworkCapability {
 
 // AddEVMClient adds an EVM client for a specific network
 func (s *VerificationService) AddEVMClient(network string, client *clients.EVMClient, cfg types.ClientConfig) error {
-	s.evmClients[network] = client
-	s.capabilities[network] = types.NetworkCapability{
-		Network:     network,
+	normalized := types.NormalizeNetwork(network)
+	s.evmClients[normalized] = client
+	s.capabilities[normalized] = types.NetworkCapability{
+		Network:     normalized,
 		X402Version: cfg.X402Version,
 		Scheme:      cfg.Scheme,
 		ChainFamily: types.ChainEVM,
@@ -72,9 +73,10 @@ func (s *VerificationService) AddEVMClient(network string, client *clients.EVMCl
 
 // AddSolanaClient adds a Solana client for a specific network
 func (s *VerificationService) AddSolanaClient(network string, client *clients.SolanaClient, cfg types.ClientConfig) error {
-	s.solanaClients[network] = client
-	s.capabilities[network] = types.NetworkCapability{
-		Network:     network,
+	normalized := types.NormalizeNetwork(network)
+	s.solanaClients[normalized] = client
+	s.capabilities[normalized] = types.NetworkCapability{
+		Network:     normalized,
 		X402Version: cfg.X402Version,
 		Scheme:      cfg.Scheme,
 		ChainFamily: types.ChainSolana,
@@ -84,9 +86,10 @@ func (s *VerificationService) AddSolanaClient(network string, client *clients.So
 
 // AddCosmosClient adds a Cosmos client for a specific network
 func (s *VerificationService) AddCosmosClient(network string, client *clients.CosmosClient, cfg types.ClientConfig) error {
-	s.cosmosClients[network] = client
-	s.capabilities[network] = types.NetworkCapability{
-		Network:     network,
+	normalized := types.NormalizeNetwork(network)
+	s.cosmosClients[normalized] = client
+	s.capabilities[normalized] = types.NetworkCapability{
+		Network:     normalized,
 		X402Version: cfg.X402Version,
 		Scheme:      cfg.Scheme,
 		ChainFamily: types.ChainCosmos,
@@ -111,7 +114,7 @@ func (s *VerificationService) Verify(
 		}, nil
 	}
 
-	network := payload.PaymentRequirements.Network
+	network := types.NormalizeNetwork(payload.PaymentRequirements.Network)
 
 	// Try Cosmos verifier
 	if client, ok := s.cosmosClients[network]; ok {

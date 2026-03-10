@@ -91,7 +91,7 @@ func (s *SettlementService) Settle(
 	settleCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	network := payload.PaymentRequirements.Network
+	network := types.NormalizeNetwork(payload.PaymentRequirements.Network)
 
 	// Try Cosmos first
 	if client, ok := s.cosmosClients[network]; ok {
