@@ -121,7 +121,11 @@ func (x *X402) addEVMNetwork(network string, config types.ClientConfig) error {
 
 	x.plugins[network] = client // V2 Plugin Registration
 
-	return nil
+	// Register with internal services
+	if err := x.verification.AddEVMClient(network, client, config); err != nil {
+		return err
+	}
+	return x.settlement.AddEVMClient(network, client, config)
 }
 
 // addSolanaNetwork adds a Solana network client
@@ -133,7 +137,11 @@ func (x *X402) addSolanaNetwork(network string, config types.ClientConfig) error
 
 	x.plugins[network] = client // V2 Plugin Registration
 
-	return nil
+	// Register with internal services
+	if err := x.verification.AddSolanaClient(network, client, config); err != nil {
+		return err
+	}
+	return x.settlement.AddSolanaClient(network, client, config)
 }
 
 // addCosmosNetwork adds a Cosmos network client
@@ -145,7 +153,11 @@ func (x *X402) addCosmosNetwork(network string, config types.ClientConfig) error
 
 	x.plugins[network] = client // V2 Plugin Registration
 
-	return nil
+	// Register with internal services
+	if err := x.verification.AddCosmosClient(network, client, config); err != nil {
+		return err
+	}
+	return x.settlement.AddCosmosClient(network, client, config)
 }
 
 // Verify verifies a payment against requirements

@@ -7,10 +7,10 @@ import (
 // PaymentPayloadV1 represents a v1 payment payload structure.
 // V1 has scheme and network at top level (not in accepted field).
 type PaymentPayloadV1 struct {
-	X402Version int    `json:"x402Version"`
-	Scheme      string `json:"scheme"`
-	Network     string `json:"network"`
-	Payload     string `json:"payload"`
+	X402Version int             `json:"x402Version"`
+	Scheme      string          `json:"scheme"`
+	Network     string          `json:"network"`
+	Payload     json.RawMessage `json:"payload"`
 }
 
 // PaymentPayloadView interface implementation for V1
@@ -18,11 +18,26 @@ func (p PaymentPayloadV1) GetVersion() int                    { return p.X402Ver
 func (p PaymentPayloadV1) GetScheme() string                  { return p.Scheme }
 func (p PaymentPayloadV1) GetNetwork() string                 { return p.Network }
 func (p PaymentPayloadV1) GetPayload() map[string]interface{} {
-	var m map[string]interface{}
-	if err := json.Unmarshal([]byte(p.Payload), &m); err != nil {
+	if len(p.Payload) == 0 {
 		return nil
 	}
-	return m
+
+	var m map[string]interface{}
+	// 1. Try unmarshaling directly (handles case where Payload is already a JSON object)
+	if err := json.Unmarshal(p.Payload, &m); err == nil {
+		return m
+	}
+
+	// 2. If it fails, it might be a quoted JSON string or a base64 string
+	var s string
+	if err := json.Unmarshal(p.Payload, &s); err == nil {
+		// Try unmarshaling the string content as JSON
+		if err := json.Unmarshal([]byte(s), &m); err == nil {
+			return m
+		}
+	}
+
+	return nil
 }
 
 // PaymentRequirementsV1 represents v1 payment requirements structure.
