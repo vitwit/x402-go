@@ -583,13 +583,61 @@ type SIWxMessage struct {
 	IssuedAt  time.Time `json:"issuedAt"`
 }
 
+// String returns the SIWx message as a standard string for signing
+func (m *SIWxMessage) String() string {
+	var b strings.Builder
+	
+	// Determine network name for the template
+	networkName := "Ethereum" // Default
+	if strings.HasPrefix(m.ChainID, "solana:") {
+		networkName = "Solana"
+	} else if strings.HasPrefix(m.ChainID, "cosmos:") {
+		networkName = "Cosmos"
+	}
+
+	b.WriteString(fmt.Sprintf("%s wants you to sign in with your %s account:\n", m.Domain, networkName))
+	b.WriteString(m.Address + "\n\n")
+
+	if m.Statement != "" {
+		b.WriteString(m.Statement + "\n\n")
+	}
+
+	b.WriteString(fmt.Sprintf("URI: %s\n", m.URI))
+	b.WriteString(fmt.Sprintf("Version: %s\n", m.Version))
+	b.WriteString(fmt.Sprintf("Chain ID: %s\n", m.ChainID))
+	b.WriteString(fmt.Sprintf("Nonce: %s\n", m.Nonce))
+	b.WriteString(fmt.Sprintf("Issued At: %s", m.IssuedAt.Format(time.RFC3339)))
+
+	return b.String()
+}
+
 // Verify verifies the SIWx message against a signature (V2)
 func (m *SIWxMessage) Verify(signature string) (bool, error) {
-	// In a real implementation, this would use the appropriate crypto library
-	// for the network (EVM, SVM, Cosmos) identified in ChainID.
-	// For this SDK, we'll provide a placeholder that validates basic format.
 	if signature == "" || m.Address == "" || m.Nonce == "" {
 		return false, nil
 	}
-	return true, nil
+
+	// Reconstruct the message string
+	message := m.String()
+
+	// Generic verification based on ChainID prefix
+	if strings.HasPrefix(m.ChainID, "eip155:") {
+		// EVM verification
+		return VerifyEVMSIWx(message, signature, m.Address)
+	} else if strings.HasPrefix(m.ChainID, "solana:") {
+		// Solana verification
+		return VerifySolanaSIWx(message, signature, m.Address)
+	} else if strings.HasPrefix(m.ChainID, "cosmos:") {
+		// Cosmos verification
+		return VerifyCosmosSIWx(message, signature, m.Address)
+	}
+
+	return false, fmt.Errorf("unsupported chain for SIWx verification: %s", m.ChainID)
 }
+
+// Placeholder verification functions to be implemented in utils/crypto.go
+var (
+	VerifyEVMSIWx    func(message, signature, address string) (bool, error)
+	VerifySolanaSIWx func(message, signature, address string) (bool, error)
+	VerifyCosmosSIWx func(message, signature, address string) (bool, error)
+)

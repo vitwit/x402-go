@@ -19,7 +19,7 @@ func GetSchemeAndNetwork(version int, payloadBytes []byte) (scheme string, netwo
 		if err := json.Unmarshal(payloadBytes, &partial); err != nil {
 			return "", "", fmt.Errorf("failed to parse v1 payload: %w", err)
 		}
-		return partial.Scheme, partial.Network, nil
+		return partial.Scheme, NormalizeNetwork(partial.Network), nil
 
 	case 2:
 		// V2: scheme and network in accepted field
@@ -32,7 +32,7 @@ func GetSchemeAndNetwork(version int, payloadBytes []byte) (scheme string, netwo
 		if err := json.Unmarshal(payloadBytes, &partial); err != nil {
 			return "", "", fmt.Errorf("failed to parse v2 payload: %w", err)
 		}
-		return partial.Accepted.Scheme, partial.Accepted.Network, nil
+		return partial.Accepted.Scheme, NormalizeNetwork(partial.Accepted.Network), nil
 
 	default:
 		return "", "", fmt.Errorf("unsupported version: %d", version)
@@ -88,7 +88,7 @@ func MatchPayloadToRequirements(
 		}
 
 		return payloadPartial.Accepted.Scheme == req.Scheme &&
-			payloadPartial.Accepted.Network == req.Network &&
+			NormalizeNetwork(payloadPartial.Accepted.Network) == NormalizeNetwork(req.Network) &&
 			payloadPartial.Accepted.Amount == req.Amount &&
 			payloadPartial.Accepted.Asset == req.Asset &&
 			payloadPartial.Accepted.PayTo == req.PayTo, nil

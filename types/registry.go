@@ -39,3 +39,12 @@ func NormalizeNetwork(network string) string {
 	}
 	return network
 }
+// DeNormalizeNetwork converts a CAIP-2 ID back to a legacy network name if possible.
+func DeNormalizeNetwork(caip2 string) string {
+	for legacy, standardized := range LegacyToCAIP2 {
+		if standardized == caip2 {
+			return legacy
+		}
+	}
+	return caip2
+}

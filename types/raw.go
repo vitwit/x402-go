@@ -31,7 +31,7 @@ func ExtractRequirementsInfo(data []byte) (*RequirementsInfo, error) {
 	}
 	return &RequirementsInfo{
 		Scheme:  info.Scheme,
-		Network: info.Network,
+		Network: NormalizeNetwork(info.Network),
 	}, nil
 }
 

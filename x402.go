@@ -13,6 +13,7 @@ import (
 	"github.com/vitwit/x402/settlement"
 	"github.com/vitwit/x402/types"
 	"github.com/vitwit/x402/verification"
+	"github.com/vitwit/x402/utils"
 )
 
 // X402 is the main struct that provides all x402 functionality
@@ -46,6 +47,12 @@ func New(cfg *types.X402Config, opts ...Option) *X402 {
 		logger:  logger.NoopLogger{},
 		metrics: metrics.NoopRecorder{},
 	}
+
+	// Wire SIWx Verification Helpers (Plugs into agnostic types package)
+	types.VerifyEVMSIWx = utils.VerifyEVMSignature
+	types.VerifySolanaSIWx = utils.VerifySolanaSignature
+	types.VerifyCosmosSIWx = utils.VerifyCosmosSignature
+
 	if cfg.DefaultTimeout > 0 {
 		x.timeout = cfg.DefaultTimeout
 	}
@@ -97,17 +104,18 @@ func (x *X402) runHooks(ctx context.Context, hookType types.HookType, hCtx *type
 
 // AddNetwork adds support for a specific network by creating the appropriate client
 func (x *X402) AddNetwork(network string, networkFamily types.ChainFamily, config types.ClientConfig) error {
+	normalized := types.NormalizeNetwork(network)
 	switch networkFamily {
 	case types.ChainEVM:
-		return x.addEVMNetwork(network, config)
+		return x.addEVMNetwork(normalized, config)
 	case types.ChainSolana:
-		return x.addSolanaNetwork(network, config)
+		return x.addSolanaNetwork(normalized, config)
 	case types.ChainCosmos:
-		return x.addCosmosNetwork(network, config)
+		return x.addCosmosNetwork(normalized, config)
 	default:
 		return &types.X402Error{
 			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("unsupported network: %s", config.ChainID),
+			Message: fmt.Sprintf("unsupported network family: %v", networkFamily),
 		}
 	}
 }
@@ -178,7 +186,7 @@ func (x *X402) Verify(
 	var result *types.VerificationResult
 	var err error
 
-	network := payload.PaymentRequirements.Network
+	network := types.NormalizeNetwork(payload.PaymentRequirements.Network)
 	if p, ok := x.plugins[network]; ok && p.Type() == types.PluginChain {
 		// If the plugin implements a "Verify" method (not in base interface but common for chains)
 		if verifier, ok := p.(interface {
@@ -218,7 +226,7 @@ func (x *X402) Settle(
 	var result *types.SettlementResult
 	var err error
 
-	network := payload.PaymentRequirements.Network
+	network := types.NormalizeNetwork(payload.PaymentRequirements.Network)
 	if p, ok := x.plugins[network]; ok && p.Type() == types.PluginChain {
 		if settler, ok := p.(interface {
 			SettlePayment(context.Context, *types.VerifyRequest) (*types.SettlementResult, error)

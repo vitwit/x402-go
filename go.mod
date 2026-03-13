@@ -12,13 +12,14 @@ require (
 
 require (
 	github.com/gagliardetto/solana-go v1.14.0
-	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/stretchr/testify v1.10.0
 	google.golang.org/grpc v1.72.2
 )
 
 require (
 	github.com/ethereum/go-ethereum v1.16.7
 	github.com/gagliardetto/binary v0.8.0
+	github.com/mr-tron/base58 v1.2.0
 	github.com/prometheus/client_golang v1.22.0
 	go.uber.org/zap v1.21.0
 )
@@ -140,7 +141,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
-	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/mtibben/percent v0.2.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a // indirect
