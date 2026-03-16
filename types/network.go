@@ -35,5 +35,6 @@ type NetworkCapability struct {
 	Network     string
 	X402Version int
 	Scheme      string
+	PayTo       string
 	ChainFamily ChainFamily
 }

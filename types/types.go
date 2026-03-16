@@ -483,6 +483,7 @@ type ClientConfig struct {
 	HexSeed       string            `json:"hexSeed"`
 	ChainFamily   ChainFamily       `json:"chainFamily"`
 	Scheme        string            `json:"scheme"`
+	PayTo         string            `json:"payTo"`
 	X402Version   int               `json:"x402Version"`
 }
 
@@ -563,7 +564,7 @@ type EndpointMetadata struct {
 
 // SessionInfo defines a wallet-controlled session (V2)
 type SessionInfo struct {
-	ID        string    `json:"id"`
+	ID        string    `json:"sessionId"`
 	Address   string    `json:"address"`
 	Network   Network   `json:"network"`
 	CreatedAt time.Time `json:"createdAt"`

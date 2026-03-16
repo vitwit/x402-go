@@ -52,6 +52,7 @@ func (s *VerificationService) Capabilities() []types.NetworkCapability {
 			Network:     v.Network,
 			X402Version: v.X402Version,
 			Scheme:      v.Scheme,
+			PayTo:       v.PayTo,
 			ChainFamily: v.ChainFamily,
 		})
 	}
@@ -66,6 +67,7 @@ func (s *VerificationService) AddEVMClient(network string, client *clients.EVMCl
 		Network:     normalized,
 		X402Version: cfg.X402Version,
 		Scheme:      cfg.Scheme,
+		PayTo:       cfg.PayTo,
 		ChainFamily: types.ChainEVM,
 	}
 	return nil
@@ -79,6 +81,7 @@ func (s *VerificationService) AddSolanaClient(network string, client *clients.So
 		Network:     normalized,
 		X402Version: cfg.X402Version,
 		Scheme:      cfg.Scheme,
+		PayTo:       cfg.PayTo,
 		ChainFamily: types.ChainSolana,
 	}
 	return nil
@@ -92,6 +95,7 @@ func (s *VerificationService) AddCosmosClient(network string, client *clients.Co
 		Network:     normalized,
 		X402Version: cfg.X402Version,
 		Scheme:      cfg.Scheme,
+		PayTo:       cfg.PayTo,
 		ChainFamily: types.ChainCosmos,
 	}
 	return nil

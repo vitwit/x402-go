@@ -300,6 +300,11 @@ func (x *X402) Discovery() *types.ServiceMetadata {
 	// In a real implementation, this would be populated from actual protected resources.
 	// For this SDK, we'll generate metadata based on supported networks for a generic endpoint.
 	for _, cap := range caps {
+		scheme := cap.Scheme
+		if scheme == "" {
+			scheme = "exact" // Default to exact if not specified
+		}
+		
 		endpoints = append(endpoints, types.EndpointMetadata{
 			Path:   "/api/protected",
 			Method: "POST",
@@ -308,10 +313,11 @@ func (x *X402) Discovery() *types.ServiceMetadata {
 					X402Version: 2,
 					Accepts: []types.PaymentRequirements{
 						{
-							Scheme:            string(cap.Scheme),
+							Scheme:            scheme,
 							Network:           cap.Network,
 							Asset:             "USDC", // Default example
 							Amount:            "1.00",
+							PayTo:             cap.PayTo,
 							MaxTimeoutSeconds: 300,
 						},
 					},
