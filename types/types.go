@@ -564,12 +564,14 @@ type EndpointMetadata struct {
 
 // SessionInfo defines a wallet-controlled session (V2)
 type SessionInfo struct {
-	ID        string    `json:"sessionId"`
-	Address   string    `json:"address"`
-	Network   Network   `json:"network"`
-	CreatedAt time.Time `json:"createdAt"`
-	ExpiresAt time.Time `json:"expiresAt"`
-	Proof     string    `json:"proof,omitempty"` // SIWx proof
+	ID             string    `json:"sessionId"`
+	Address        string    `json:"address"`
+	Network        Network   `json:"network"`
+	CreatedAt      time.Time `json:"createdAt"`
+	ExpiresAt      time.Time `json:"expiresAt"`
+	QuotaLimit     int       `json:"quotaLimit,omitempty"`
+	QuotaRemaining int       `json:"quotaRemaining,omitempty"`
+	Proof          string    `json:"proof,omitempty"` // SIWx proof
 }
 
 // SIWxMessage defines the structure of a Sign-In-With-X message (CAIP-122)
