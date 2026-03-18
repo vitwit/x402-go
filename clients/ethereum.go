@@ -635,7 +635,7 @@ func (e *EVMClient) VerifyPayment(
 
 	requiredBI, ok := new(big.Int).SetString(req.Amount, 10)
 	if !ok {
-		return nil, fmt.Errorf("invalid maxAmountRequired: %s", req.Amount)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: fmt.Sprintf("invalid maxAmountRequired: %s", req.Amount)}, nil
 	}
 
 	if bal.Cmp(requiredBI) < 0 {

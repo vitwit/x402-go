@@ -484,6 +484,7 @@ type ClientConfig struct {
 	ChainFamily   ChainFamily       `json:"chainFamily"`
 	Scheme        string            `json:"scheme"`
 	PayTo         string            `json:"payTo"`
+	Amount        string            `json:"amount"`
 	X402Version   int               `json:"x402Version"`
 }
 

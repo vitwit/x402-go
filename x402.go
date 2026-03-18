@@ -315,10 +315,11 @@ func (x *X402) Discovery() *types.ServiceMetadata {
 						{
 							Scheme:            scheme,
 							Network:           cap.Network,
-							Asset:             "USDC", // Default example
-							Amount:            "1.00",
+							Asset:             cap.Asset,
+							Amount:            cap.Amount,
 							PayTo:             cap.PayTo,
 							MaxTimeoutSeconds: 300,
+							Extra:             cap.Extra,
 						},
 					},
 				},

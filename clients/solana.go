@@ -90,16 +90,24 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     err.Error(),
 			Success:   false,
 			Sender:    "",
-		}, err
+		}, nil
 	}
 
 	if !vr.IsValid {
-		return &types.SettlementResult{
+		errStr := vr.Error
+		if errStr == "" {
+			errStr = vr.InvalidReason
+		}
+		if errStr == "" {
+			errStr = "verification_failed"
+		}
+
+		return &x402types.SettlementResult{
 			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    payload.PaymentRequirements.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
-			Error:     vr.Error,
+			Error:     errStr,
 			Success:   false,
 			Sender:    "",
 		}, nil
@@ -115,7 +123,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     err.Error(),
 			Success:   false,
 			Sender:    vr.Sender,
-		}, fmt.Errorf("invalid_payload: %w", err)
+		}, nil
 	}
 
 	// 2) Decode base64 transaction bytes
@@ -129,7 +137,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     err.Error(),
 			Success:   false,
 			Sender:    vr.Sender,
-		}, fmt.Errorf("invalid_transaction_base64: %w", err)
+		}, nil
 	}
 
 	// 3) Parse transaction
@@ -143,7 +151,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     err.Error(),
 			Success:   false,
 			Sender:    vr.Sender,
-		}, fmt.Errorf("invalid_transaction: %w", err)
+		}, nil
 	}
 
 	// 4) Determine feePayer: prefer PaymentRequirements.Extra["feePayer"], fallback to configured facilitator PK.
@@ -170,7 +178,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     "transaction_missing_required_signatures",
 			Success:   false,
 			Sender:    vr.Sender,
-		}, errors.New("transaction_missing_required_signatures")
+		}, nil
 	}
 
 	// 6) Verify user signatures (skip fee payer index). This uses the helper you already added.
@@ -183,7 +191,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     err.Error(),
 			Success:   false,
 			Sender:    vr.Sender,
-		}, fmt.Errorf("user_signature_verification_failed: %w", err)
+		}, nil
 	}
 
 	// 7) Prepare sign-bytes for signing (v0 or legacy)
@@ -197,7 +205,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     err.Error(),
 			Success:   false,
 			Sender:    vr.Sender,
-		}, fmt.Errorf("failed_to_serialize_message_for_signing: %w", err)
+		}, nil
 	}
 
 	if err := verifyBlockhashFreshness(ctx, s.client, tx.Message); err != nil {
@@ -210,7 +218,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     err.Error(),
 			Success:   false,
 			Sender:    vr.Sender,
-		}, fmt.Errorf("failed_to_serialize_message_for_signing: %w", err)
+		}, nil
 	}
 
 	// 8) Sign as facilitator (fee payer) using stored ed25519 private key
@@ -224,7 +232,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 			Error:     "invalid_facilitator_signature_length",
 			Success:   false,
 			Sender:    vr.Sender,
-		}, errors.New("invalid_facilitator_signature_length")
+		}, nil
 	}
 
 	// Copy into solana.Signature type ([64]byte)
@@ -272,7 +280,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 				Error:     err.Error(),
 				Success:   false,
 				Sender:    vr.Sender,
-			}, fmt.Errorf("transaction_marshal_error: %w", err)
+			}, nil
 		}
 
 		sentSig, err = s.client.SendRawTransaction(ctx, raw)
@@ -285,7 +293,7 @@ func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.Ver
 				Success:   false,
 				Sender:    vr.Sender,
 				Error:     fmt.Sprintf("broadcast_failed: %v", err),
-			}, fmt.Errorf("rpc_send_transaction_failed: %w", err)
+			}, nil
 		}
 	}
 
@@ -394,8 +402,6 @@ func (c *SolanaClient) VerifyPayment(
 		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidExactSvmPayload}, nil
 	}
 
-	tx, err = solana.TransactionFromDecoder(bin.NewBinDecoder(txBytes))
-
 	// 3) Decompile message and resolve lookup tables into "msg" and "allKeys"
 	msg, allKeys, err := c.decompileMessageWithLookups(ctx, *tx)
 	if err != nil {
@@ -431,7 +437,7 @@ func (c *SolanaClient) VerifyPayment(
 	transferIdx := 2
 	if len(msg.Instructions) == 4 {
 		// index 2 must be associated token account create
-		if !isCreateAssociatedTokenAccountInstruction(msg.Instructions[2]) {
+		if !isCreateAssociatedTokenAccountInstruction(msg.Instructions[2], allKeys) {
 			return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidInstructionsLength}, nil
 		}
 		createATAExists = true
@@ -516,7 +522,7 @@ func (c *SolanaClient) validateSplTransferChecked(
 	preq x402types.PaymentRequirements,
 ) (*x402types.VerificationResult, error) {
 	if transferIdx >= len(msg.Instructions) {
-		return nil, errors.New(ErrNotATransferInstruction)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrNotATransferInstruction}, nil
 	}
 
 	inst := msg.Instructions[transferIdx]
@@ -536,19 +542,19 @@ func (c *SolanaClient) validateSplTransferChecked(
 	// Try decode as SPL token instruction
 	splInst, err := token.DecodeInstruction(metas, inst.Data)
 	if err != nil {
-		return nil, errors.New(ErrNotATransferInstruction)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrNotATransferInstruction}, nil
 	}
 
 	// Ensure it's TransferChecked
 	tc, ok := splInst.Impl.(*token.TransferChecked)
 	if !ok {
-		return nil, errors.New(ErrNotATransferCheckedInstruction)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrNotATransferCheckedInstruction}, nil
 	}
 
 	// Expected account ordering for TransferChecked (per spl token lib):
 	// [source, mint, destination, authority, token_program?, ...]
 	if len(inst.Accounts) < 4 {
-		return nil, errors.New(ErrNotATransferInstruction)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrNotATransferInstruction}, nil
 	}
 	source := allKeys[inst.Accounts[0]]
 	mint := allKeys[inst.Accounts[1]]
@@ -571,66 +577,67 @@ func (c *SolanaClient) validateSplTransferChecked(
 		}
 	}
 	if authority.Equals(feePayer) {
-		return nil, errors.New(ErrFeePayerTransferringFunds)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrFeePayerTransferringFunds}, nil
 	}
 	if source.Equals(feePayer) {
-		return nil, errors.New(ErrFeePayerTransferringFunds)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrFeePayerTransferringFunds}, nil
 	}
 
 	// in validateSplTransferChecked, after mint := allKeys[inst.Accounts[1]]
 	whitelist := []solana.PublicKey{ /* fill from config or PaymentRequirements.Extra if provided */ }
 	if err := verifyMintWhitelisted(ctx, c.client, mint, whitelist); err != nil {
-		return nil, err
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: err.Error()}, nil
 	}
 
 	// 2) Destination must be the ATA for (owner=payTo, mint=asset) under the selected token program
 	expectedMint := preq.Asset
 	expectedOwner := preq.PayTo
 	if expectedMint == "" || expectedOwner == "" {
-		return nil, errors.New(ErrInvalidExactSvmPayload)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidExactSvmPayload}, nil
 	}
 	mintPk, err := solana.PublicKeyFromBase58(expectedMint)
 	if err != nil {
-		return nil, errors.New(ErrInvalidExactSvmPayload)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: err.Error()}, nil
 	}
 	ownerPk, err := solana.PublicKeyFromBase58(expectedOwner)
 	if err != nil {
-		return nil, errors.New(ErrInvalidExactSvmPayload)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: err.Error()}, nil
 	}
 	expectedATA, err := findAssociatedTokenPDA(ownerPk, mintPk)
 	if err != nil {
-		return nil, fmt.Errorf("ata_derivation_failed: %w", err)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: "ata_derivation_failed"}, nil
 	}
 	if !dest.Equals(expectedATA) {
-		return nil, errors.New(ErrTransferToIncorrectATA)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrTransferToIncorrectATA}, nil
 	}
 
 	// 3) Account existence checks:
 	// source must exist
 	okSrc, _ := c.fetchAccountExists(ctx, source)
 	if !okSrc {
-		return nil, errors.New(ErrSenderATANotFound)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrSenderATANotFound}, nil
 	}
 	// destination must exist iff createATAExists == false
 	okDst, _ := c.fetchAccountExists(ctx, dest)
 	if !createATAExists && !okDst {
-		return nil, errors.New(ErrReceiverATANotFound)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrReceiverATANotFound}, nil
 	}
 
 	// convert required decimals from preq.Decimals (string/int) to uint8
-	expectedDecimals := uint8(6) // adapt conversion as needed
+	// Fallback to 6 if not provided (common for USDC/Stablecoins)
+	expectedDecimals := uint8(6)
 	if err := verifyMintDecimals(ctx, c.client, mint, expectedDecimals); err != nil {
-		return nil, err
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: err.Error()}, nil
 	}
 
 	// 4) Amount must equal maxAmountRequired exactly
 	reqAmt, err := decimal.NewFromString(preq.Amount)
 	if err != nil {
-		return nil, errors.New(ErrInvalidExactSvmPayload)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrInvalidExactSvmPayload}, nil
 	}
 	actualAmt := decimal.NewFromInt(int64(*tc.Amount))
 	if !actualAmt.Equal(reqAmt) {
-		return nil, errors.New(ErrAmountMismatch)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: ErrAmountMismatch}, nil
 	}
 
 	// 5) All checks pass -> return success struct
@@ -668,11 +675,13 @@ func (c *SolanaClient) fetchAccountExists(ctx context.Context, pk solana.PublicK
 	return resp.Value != nil, nil
 }
 
-// isCreateAssociatedTokenAccountInstruction heuristically checks if instruction is an ATA create (program = system  associated)
-func isCreateAssociatedTokenAccountInstruction(inst solana.CompiledInstruction) bool {
-	// return inst.ProgramID.Equals(AssociatedTokenProgramID)
-
-	return false
+// isCreateAssociatedTokenAccountInstruction heuristically checks if instruction is an ATA create (program = associated token program)
+func isCreateAssociatedTokenAccountInstruction(inst solana.CompiledInstruction, allKeys []solana.PublicKey) bool {
+	if int(inst.ProgramIDIndex) >= len(allKeys) {
+		return false
+	}
+	prog := allKeys[inst.ProgramIDIndex]
+	return prog.Equals(AssociatedTokenProgramID)
 }
 
 // verifyComputePriceInstructionMsg checks instruction at index is compute budget set price (discriminator 3) and <= 5 lamports

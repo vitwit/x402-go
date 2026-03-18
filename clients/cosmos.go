@@ -72,7 +72,7 @@ func (c *CosmosClient) VerifyPayment(
 
 	data, err := payload.PaymentPayload.PayloadBytes()
 	if err != nil {
-		return nil, fmt.Errorf("invalid base64: %w", err)
+		return &x402types.VerificationResult{IsValid: false, InvalidReason: fmt.Sprintf("settlement failed: %v", err)}, nil
 	}
 
 	var header types.CosmosPaymentPayload
@@ -120,7 +120,7 @@ func (c *CosmosClient) VerifyPayment(
 		if amt.Denom == c.AcceptedDenom {
 			sentAmt, err := decimal.NewFromString(amt.Amount.String())
 			if err != nil {
-				return nil, err
+				return &x402types.VerificationResult{IsValid: false, InvalidReason: err.Error()}, nil
 			}
 			// reqAmt, _ := decimal.NewFromString(payload.PaymentRequirements.Amount)
 
@@ -171,15 +171,23 @@ func (c *CosmosClient) SettlePayment(
 	}
 
 	if !vr.IsValid {
+		errStr := vr.Error
+		if errStr == "" {
+			errStr = vr.InvalidReason
+		}
+		if errStr == "" {
+			errStr = "verification_failed"
+		}
+
 		return &x402types.SettlementResult{
 			NetworkId: payload.PaymentRequirements.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    payload.PaymentRequirements.Amount,
 			Recipient: payload.PaymentRequirements.PayTo,
-			Error:     vr.Error,
+			Error:     errStr,
 			Success:   false,
-			Sender:    "",
-		}, err
+			Sender:    vr.Sender,
+		}, nil
 	}
 
 	if c.grpc == nil {
