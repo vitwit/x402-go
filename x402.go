@@ -184,6 +184,7 @@ func (x *X402) Supported() (*types.SupportedResponse, error) {
 			X402Version: cap.X402Version,
 			Scheme:      string(cap.Scheme),
 			Network:     cap.Network,
+			ChainFamily: string(cap.ChainFamily),
 		})
 	}
 

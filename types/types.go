@@ -35,6 +35,7 @@ type SupportedItem struct {
 	X402Version int    `json:"x402Version"`
 	Scheme      string `json:"scheme"`
 	Network     string `json:"network"`
+	ChainFamily string `json:"chain_family"`
 }
 
 type SupportedResponse struct {
@@ -314,6 +315,7 @@ type SettlementResult struct {
 	NetworkId string    `json:"networkId,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	Extra     ExtraData `json:"extra,omitempty"`
+	Block     int       `json:"block,omitempty"`
 
 	Amount        string     `json:"amount,omitempty"`
 	Asset         string     `json:"asset,omitempty"`
