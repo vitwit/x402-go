@@ -61,6 +61,30 @@ func (s *SolanaClient) GetNetwork() string {
 	return s.network
 }
 
+// GetLatestBlock returns the latest slot and block time for the Solana network.
+func (s *SolanaClient) GetLatestBlock(ctx context.Context) (*x402types.BlockInfo, error) {
+	slot, err := s.client.GetSlot(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest slot: %w", err)
+	}
+
+	blockTime, err := s.client.GetBlockTime(ctx, slot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block time: %w", err)
+	}
+
+	var ts time.Time
+	if blockTime != nil {
+		ts = blockTime.Time()
+	}
+
+	return &x402types.BlockInfo{
+		Network:   s.network,
+		Height:    int64(slot),
+		Timestamp: ts,
+	}, nil
+}
+
 // SettlePayment implements Client.
 func (s *SolanaClient) SettlePayment(ctx context.Context, payload *x402types.VerifyRequest) (*x402types.SettlementResult, error) {
 	// 1) Decode wrapper JSON (same as VerifyPayment)

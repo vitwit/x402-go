@@ -282,6 +282,14 @@ type Amount struct {
 // ExtraData contains additional payment-specific data
 type ExtraData map[string]interface{}
 
+// BlockInfo contains information about the latest block on a network
+type BlockInfo struct {
+	Network   string    `json:"network"`
+	Height    int64     `json:"height"`
+	Hash      string    `json:"hash"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // VerificationResult contains the result of payment verification
 type VerificationResult struct {
 	IsValid       bool       `json:"isValid"`

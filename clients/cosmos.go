@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -272,6 +275,8 @@ func (c *CosmosClient) SettlePayment(
 					Amount:    vr.Amount,
 					Recipient: payload.PaymentRequirements.PayTo,
 					Sender:    vr.Sender,
+					Block:     int(broadcastResult.TxResponse.Height),
+					TxHash:    broadcastResult.TxResponse.TxHash,
 				}, nil
 			}
 			return &x402types.SettlementResult{
@@ -282,6 +287,7 @@ func (c *CosmosClient) SettlePayment(
 				Amount:    vr.Amount,
 				Recipient: payload.PaymentRequirements.PayTo,
 				Sender:    vr.Sender,
+				Block:     int(txResult.TxResponse.Height),
 			}, nil
 		}
 		time.Sleep(3 * time.Second)
@@ -306,6 +312,60 @@ func (c *CosmosClient) WaitForConfirmation(ctx context.Context, txHash string, c
 }
 
 func (c *CosmosClient) GetNetwork() string { return c.network }
+
+// GetLatestBlock returns the latest block info from the Cosmos Tendermint RPC.
+func (c *CosmosClient) GetLatestBlock(ctx context.Context) (*x402types.BlockInfo, error) {
+	url := fmt.Sprintf("%s/block", c.rpcURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch latest block: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var result struct {
+		Result struct {
+			Block struct {
+				Header struct {
+					Height string    `json:"height"`
+					Time   time.Time `json:"time"`
+				} `json:"header"`
+				LastCommit struct {
+					BlockID struct {
+						Hash string `json:"hash"`
+					} `json:"block_id"`
+				} `json:"last_commit"`
+			} `json:"block"`
+			BlockID struct {
+				Hash string `json:"hash"`
+			} `json:"block_id"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse block response: %w", err)
+	}
+
+	height, err := strconv.ParseInt(result.Result.Block.Header.Height, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid block height: %w", err)
+	}
+
+	return &x402types.BlockInfo{
+		Network:   c.network,
+		Height:    height,
+		Hash:      result.Result.BlockID.Hash,
+		Timestamp: result.Result.Block.Header.Time,
+	}, nil
+}
 
 func (c *CosmosClient) Close() {
 	c.grpc.Close()

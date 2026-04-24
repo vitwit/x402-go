@@ -9,6 +9,7 @@ import (
 type Client interface {
 	VerifyPayment(ctx context.Context, payload *x402types.VerifyRequest) (*x402types.VerificationResult, error)
 	SettlePayment(ctx context.Context, payload *x402types.VerifyRequest) (*x402types.SettlementResult, error)
+	GetLatestBlock(ctx context.Context) (*x402types.BlockInfo, error)
 	GetNetwork() string
 	Close()
 }

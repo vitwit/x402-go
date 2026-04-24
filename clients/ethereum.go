@@ -80,6 +80,20 @@ func (e *EVMClient) Close() {
 	e.client.Close()
 }
 
+// GetLatestBlock returns the latest block info for the EVM network.
+func (e *EVMClient) GetLatestBlock(ctx context.Context) (*types.BlockInfo, error) {
+	header, err := e.client.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest block: %w", err)
+	}
+	return &types.BlockInfo{
+		Network:   e.network,
+		Height:    header.Number.Int64(),
+		Hash:      header.Hash().Hex(),
+		Timestamp: time.Unix(int64(header.Time), 0),
+	}, nil
+}
+
 // GetNetwork implements Client.
 func (e *EVMClient) GetNetwork() string {
 	return e.network
@@ -96,7 +110,7 @@ func (e *EVMClient) SettlePayment(ctx context.Context, payload *types.VerifyRequ
 	if !ver.IsValid {
 		return &types.SettlementResult{
 			Success:   false,
-			Error:     err.Error(),
+			Error:     ver.Error,
 			NetworkId: payload.PaymentPayload.Network,
 			Asset:     payload.PaymentRequirements.Asset,
 			Amount:    payload.PaymentRequirements.MaxAmountRequired,

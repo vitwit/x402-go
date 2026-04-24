@@ -24,7 +24,8 @@ type X402 struct {
 	metrics metrics.Recorder
 	timeout time.Duration
 
-	config *types.X402Config
+	config  *types.X402Config
+	clients map[string]clients.Client
 }
 
 // New creates a new X402 instance with the given configuration
@@ -38,6 +39,7 @@ func New(cfg *types.X402Config, opts ...Option) *X402 {
 		timeout: 30 * time.Second,
 		logger:  logger.NoopLogger{},
 		metrics: metrics.NoopRecorder{},
+		clients: make(map[string]clients.Client),
 	}
 	if cfg.DefaultTimeout > 0 {
 		x.timeout = cfg.DefaultTimeout
@@ -96,6 +98,7 @@ func (x *X402) addEVMNetwork(network string, config types.ClientConfig) error {
 		return err
 	}
 
+	x.clients[network] = client
 	return nil
 }
 
@@ -114,6 +117,7 @@ func (x *X402) addSolanaNetwork(network string, config types.ClientConfig) error
 		return err
 	}
 
+	x.clients[network] = client
 	return nil
 }
 
@@ -132,6 +136,7 @@ func (x *X402) addCosmosNetwork(network string, config types.ClientConfig) error
 		return err
 	}
 
+	x.clients[network] = client
 	return nil
 }
 
@@ -206,6 +211,18 @@ func (x *X402) EstimateSettlementGas(
 ) (uint64, error) {
 	gasLimit, _, err := x.settlement.EstimateGas(ctx, request)
 	return gasLimit, err
+}
+
+// Block returns the latest block info for the given network.
+func (x *X402) Block(ctx context.Context, network string) (*types.BlockInfo, error) {
+	c, ok := x.clients[network]
+	if !ok {
+		return nil, &types.X402Error{
+			Code:    types.ErrUnsupportedNetwork,
+			Message: fmt.Sprintf("network not found: %s", network),
+		}
+	}
+	return c.GetLatestBlock(ctx)
 }
 
 // Close closes all client connections
