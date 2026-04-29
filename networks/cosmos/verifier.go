@@ -68,15 +68,12 @@ func (v *Verifier) Schemes() []x402.Scheme {
 }
 
 func (v *Verifier) Verify(ctx context.Context, req x402.VerifyRequest) (x402.VerifyResult, error) {
-	fmt.Println("VEIRDY CALLLLED")
 	var cosmosPayload x402.CosmosPayload
 	if err := json.Unmarshal(req.PaymentPayload.Payload, &cosmosPayload); err != nil {
 		return x402.VerifyResult{}, fmt.Errorf("unmarshal cosmos payload: %w", err)
 	}
 
 	auth := cosmosPayload.Authorization
-
-	fmt.Println(auth)
 
 	// Expiry check
 	if time.Now().Unix() >= auth.TimeoutAt {
@@ -142,12 +139,6 @@ func (v *Verifier) Verify(ctx context.Context, req x402.VerifyRequest) (x402.Ver
 		return x402.VerifyResult{Error: "recipient mismatch"}, nil
 	}
 	sender := msgSend.FromAddress
-
-	fmt.Println("==============MSG SEND=================================")
-	fmt.Println(msgSend.FromAddress)
-	fmt.Println(msgSend.ToAddress)
-	fmt.Println(msgSend.Amount.String())
-	fmt.Println("==============MSG SEND=================================")
 
 	// Check denom and amount in MsgSend
 	for _, coin := range msgSend.Amount {

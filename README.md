@@ -1,5 +1,7 @@
 # x402-go
 
+> **WARNING: This library is under active development and has not been audited. Use it at your own risk. Do not use in production without a thorough security audit.**
+
 A Go library implementing the [x402 payment protocol](https://x402.org) for multi-chain payment verification and settlement.
 
 x402-go is a **library**. Your application (the facilitator) owns the HTTP server, key management, and lifecycle. This library provides the verification, settlement, and HTTP middleware logic — wired together through a clean provider interface.
