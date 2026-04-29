@@ -1,6 +1,6 @@
 # Payment Schemes for Solana Virtual Machine (SVM): `exact` and `upto`
 
-> Source: [x402-foundation/x402 — scheme_exact_svm.md](https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_svm.md)
+> Source: [x402-foundation/x402 - scheme_exact_svm.md](https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_svm.md)
 
 This document specifies the `exact` and `upto` payment schemes for the x402 protocol on Solana.
 
