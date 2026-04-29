@@ -1,6 +1,6 @@
 # Schemes: `exact` and `upto` on `EVM`
 
-> Source: [x402-foundation/x402 — scheme_exact_evm.md](https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_evm.md)
+> Source: [x402-foundation/x402 - scheme_exact_evm.md](https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_evm.md)
 
 ## Summary
 
