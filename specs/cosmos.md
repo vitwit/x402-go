@@ -1,4 +1,4 @@
-# x402 Exact Scheme — Cosmos SDK (bank MsgSend)
+# x402 Exact Scheme - Cosmos SDK (bank MsgSend)
 
 ## Status
 
