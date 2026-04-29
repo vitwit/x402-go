@@ -1,208 +1,155 @@
-# x402 Exact Scheme - Cosmos SDK
+# x402 Exact Scheme — Cosmos SDK (bank MsgSend)
 
 ## Status
 
-Draft
+Stable
 
 ## Version
 
-x402 Version: 1
+x402 Version: 2
 
 ## Scheme
 
-`exact`
+`exact` / `upto`
+
+---
 
 ## Overview
 
-The Cosmos Exact Scheme defines how a client pays for an x402-protected resource by submitting a fully signed Cosmos SDK transaction that transfers an exact amount of a native or Cosmos-based token to the resource's payTo address.
+The Cosmos exact scheme uses a **fully-signed `MsgSend` transaction** submitted by the client. The client builds and signs the transaction locally; the facilitator verifies it off-chain (optionally simulates it via gRPC), then broadcasts it as-is. No facilitator signing is required.
 
-The facilitator:
+---
 
-- Verifies the transaction off-chain (structure, recipient, denom, amount).
-- Simulates the transaction for validity.
-- Broadcasts the transaction to the Cosmos network.
-- Waits for confirmation and finalizes settlement.
+## Network Identifiers (CAIP-2)
 
-This scheme mirrors the intent of the EVM/SVM exact schemes, while conforming to Cosmos SDK transaction semantics.
+| Network     | CAIP-2 identifier      |
+|---|---|
+| Cosmos Hub  | `cosmos:cosmoshub-4`   |
+| Osmosis     | `cosmos:osmosis-1`     |
+| Neutron     | `cosmos:neutron-1`     |
+| Celestia    | `cosmos:celestia`      |
 
-## Supported Networks
+Custom chains: any `cosmos:<chain-id>` value is accepted when registered via `Provider.AddNetwork`.
 
-A network MUST be a Cosmos SDK chain.
+---
 
-## Assets
+## PaymentOption (Server → Client)
 
-Assets are identified via the asset field in PaymentRequirements.
-
-For Cosmos:
-
-- Native tokens (e.g. uatom, uosmo)
-- CW20 tokens are out of scope for this scheme version
-- The facilitator MUST be configured with an acceptedDenom
-
-If the transaction does not contain the accepted denom, it MUST be rejected.
-
-## PaymentRequirements Object
-
-A resource server advertises acceptable payment using:
-
-``` json
+```json
 {
-  "scheme": "exact",
-  "network": "cosmoshub-4",
-  "maxAmountRequired": "1000000",
-  "resource": "/v1/chat",
-  "description": "LLM inference",
-  "mimeType": "application/json",
-  "payTo": "cosmos1facilitator...",
-  "maxTimeoutSeconds": 30,
-  "asset": "uatom"
+  "scheme":            "exact",
+  "network":           "cosmos:cosmoshub-4",
+  "amount":            "1000000",
+  "asset":             "uatom",
+  "payTo":             "cosmos1facilitator...",
+  "maxTimeoutSeconds": 60
 }
 ```
 
-### Semantics
+| Field    | Semantics                                    |
+|---|---|
+| `amount` | Minimum amount required, in atomic units     |
+| `asset`  | Cosmos denom (e.g. `uatom`, `uosmo`)         |
+| `payTo`  | Recipient bech32 address                     |
 
-| Field               | Meaning                    |
-| ------------------- | -------------------------- |
-| `scheme`            | MUST be `"exact"`          |
-| `network`           | Cosmos chain ID            |
-| `maxAmountRequired` | Amount in **atomic units** |
-| `payTo`             | Recipient address          |
-| `asset`             | Denom expected in tx       |
-| `maxTimeoutSeconds` | Client response deadline   |
+---
 
-## Client Payment Payload
+## PaymentPayloadV2 (Client → Server)
 
-The client submits a PaymentPayload inside the retry request.
-
-### PaymentPayload
-
-``` json
+```json
 {
-  "x402Version": 1,
-  "scheme": "exact",
-  "network": "cosmoshub-4",
-  "payload": "<base64(json)>"
-}
-```
-
-The `payload` field MUST be a base64-encoded JSON object of type `CosmosPaymentPayload`.
-
-### CosmosPaymentPayload
-
-``` json
-{
-  "version": 1,
-  "chainId": "cosmoshub-4",
-  "payment": {
-    "amount": "1000000",
-    "denom": "uatom",
-    "payer": "cosmos1payer...",
-    "recipient": "cosmos1facilitator...",
-    "txBase64": "<base64_tx_bytes>",
-    "publicKey": "<base64_pubkey>",
-    "fee": "5000",
-    "gas": "200000",
-    "memo": "x402 payment",
-    "sequence": "42",
-    "accountNumber": "12345"
+  "x402Version": 2,
+  "accepted": {
+    "scheme":  "exact",
+    "network": "cosmos:cosmoshub-4",
+    "amount":  "1000000",
+    "asset":   "uatom",
+    "payTo":   "cosmos1facilitator...",
+    "maxTimeoutSeconds": 60
   },
-  "signature": "<optional>"
-}
-
-```
-
-#### Requirements
-
-- `txBase64` MUST be a fully signed Cosmos SDK transaction
-- The transaction MUST contain a `MsgSend`
-- The transaction MUST NOT require additional signatures
-- The payer MUST be the signer
-
-## Verification Phase (Facilitator)
-
-When a `VerifyRequest` is received, the facilitator MUST:
-- Base64-decode `PaymentPayload.payload`
-- Decode `CosmosPaymentPayload`
-- Base64-decode `txBase64`
-- Decode the Cosmos SDK transaction
-- Validate:
-  - Transaction decodes successfully
-  - At least one message exists
-  - First message is `MsgSend`
-  - `to_address` == `payTo`
-  - Contains `acceptedDenom`
-- Simulate the transaction via tx.Service/Simulate
-
-### Verification Result
-
-If valid:
-
-``` json
-{
-  "isValid": true,
-  "amount": "1000000",
-  "token": "uatom",
-  "recipient": "cosmos1facilitator...",
-  "sender": "cosmos1payer...",
-  "confirmations": 0
+  "payload": { ... }
 }
 ```
 
-If invalid:
+The `payload` field is a `CosmosPayload` object:
 
-``` json
+```json
 {
-  "isValid": false,
-  "invalidReason": "recipient mismatch"
+  "signature": "<base64 signature>",
+  "authorization": {
+    "from":      "cosmos1payer...",
+    "to":        "cosmos1facilitator...",
+    "amount":    "1000000",
+    "denom":     "uatom",
+    "timeoutAt": 1700000300
+  },
+  "signedTx": "<base64-encoded protobuf TxRaw>"
 }
 ```
 
-## Settlement Phase
+| Field                  | Requirement                                     |
+|---|---|
+| `signedTx`             | Base64-encoded, fully-signed Cosmos SDK `TxRaw` |
+| `authorization.to`     | MUST equal `accepted.payTo`                     |
+| `authorization.amount` | MUST be ≥ `accepted.amount`                     |
+| `authorization.denom`  | MUST match `accepted.asset`                     |
+| `timeoutAt`            | Unix timestamp; payment MUST NOT be expired     |
 
-If verification succeeds, the facilitator MUST:
-- Broadcast the transaction using:
-  - BroadcastMode_SYNC
-- Check TxResponse.Code == 0
-- Poll GetTx until:
-  - height > 0
-  - OR timeout (~15s)
+---
 
-  ### Successful Settlement
+## Verification (Facilitator)
 
-``` json
-{
-  "success": true,
-  "networkId": "cosmoshub-4",
-  "asset": "uatom",
-  "amount": "1000000",
-  "recipient": "cosmos1facilitator...",
-  "sender": "cosmos1payer...",
-  "extra": {
-    "code": 0,
-    "codespace": "",
-    "log": ""
-  }
-}
+The facilitator MUST:
+
+1. Decode the `CosmosPayload`.
+2. Check `timeoutAt > now`.
+3. Check `authorization.amount ≥ accepted.amount`.
+4. Check `authorization.to == accepted.payTo` (case-insensitive).
+5. Base64-decode `signedTx` and decode as `TxRaw` using the Cosmos SDK codec.
+6. Confirm the first message is `MsgSend`.
+7. Confirm `MsgSend.ToAddress == authorization.to`.
+8. Confirm `MsgSend` contains the required denom with sufficient amount.
+9. Optionally call `tx.Service/Simulate` via gRPC to confirm the transaction would succeed.
+
+### VerifyResult
+
+```json
+{ "valid": true, "payer": "cosmos1payer..." }
+{ "valid": false, "error": "recipient mismatch" }
+```
+
+---
+
+## Settlement (Facilitator)
+
+The facilitator MUST:
+
+1. Base64-decode `signedTx`.
+2. Call `BroadcastTx` with `BROADCAST_MODE_SYNC` via gRPC.
+3. Check `TxResponse.Code == 0`.
+4. Poll `GetTx` until `TxResponse.Height > 0` or timeout (~15 s).
+
+### SettleResult
+
+```json
+{ "success": true, "transactionHash": "ABC123...", "network": "cosmos:cosmoshub-4", "payer": "cosmos1payer..." }
+{ "success": false, "error": "timeout waiting for confirmation" }
 ```
 
 ### Failure Modes
 
-| Condition         | Error                              |
-| ----------------- | ---------------------------------- |
-| Broadcast failure | `SETTLEMENT_FAILED`                |
-| Non-zero tx code  | `RawLog`                           |
-| Timeout           | `timeout waiting for confirmation` |
+| Condition            | Error                                  |
+|---|---|
+| Broadcast failure    | gRPC error message                     |
+| Non-zero tx code     | `TxResponse.RawLog`                    |
+| Confirmation timeout | `"timeout waiting for confirmation"`   |
 
-
-## Finality & Confirmations
-- Cosmos provides fast probabilistic finality
-- This scheme treats inclusion in a block as sufficient
-- confirmations is always 0 or 1 in v1
+---
 
 ## Security Considerations
 
-- Transactions are chain-bound via chainId
-- Replay across chains is impossible
-- Facilitator never signs on behalf of the user
-- Funds move directly from payer → recipient
-- Simulation prevents invalid or failing txs
+- Transactions are chain-bound by `chain_id` in the transaction body; cross-chain replay is impossible.
+- The facilitator does not sign on behalf of the user; it only broadcasts the pre-signed transaction.
+- Funds move directly from payer to recipient via the `MsgSend`.
+- `Simulate` prevents broadcasting transactions that would fail on-chain.
+- `timeoutAt` ensures the authorization cannot be replayed after expiry.

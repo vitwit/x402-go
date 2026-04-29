@@ -1,209 +1,125 @@
-# X402 Go Library
+# x402-go
 
-A complete Go implementation of the x402 payment protocol for multi-chain payment verification and settlement.
+> **WARNING: This library is under active development and has not been audited. Use it at your own risk. Do not use in production without a thorough security audit.**
 
-## Overview
+A Go library implementing the [x402 payment protocol](https://x402.org) for multi-chain payment verification and settlement.
 
-The x402 Go library provides a comprehensive solution for building payment facilitators that support multiple blockchain networks including Ethereum Virtual Machine (EVM) chains, Solana, and Cosmos SDK-based networks.
-
-While the library is chain-agnostic, it includes first-class support for Cosmos SDK–based chains, enabling x402 payments with Cosmos-native tokens.
-
-### Key Features
-
-- **Multi-Chain Support**: EVM (Polygon, Base), Solana, Cosmos
-- **Payment Verification**: Verify on-chain transactions against payment requirements
-- **Payment Settlement**: Create, sign, and broadcast settlement transactions
-- **Type Safety**: Full Go type safety with comprehensive validation
-- **Extensible**: Easy to add support for new networks and token standards
-- **Logging**: Pluggable logger
-- **Metrics**: Pluggable metrics (Prometheus, OTel, No-op)
-
-## Getting Started
-
-For a complete, step-by-step integration guide, see:
-
-👉 **[HOW_TO_USE.md](HOW_TO_USE.md)**
+x402-go is a **library**. Your application (the facilitator) owns the HTTP server, key management, and lifecycle. This library provides the verification, settlement, and HTTP middleware logic — wired together through a clean provider interface.
 
 ## Installation
 
-``` sh
+```sh
 go get github.com/vitwit/x402-go
 ```
 
-Optional dependencies:
+## Supported Networks
 
-``` sh
-go get go.uber.org/zap
-go get github.com/prometheus/client_golang/prometheus
-```
+| Chain family | Networks (built-in)                                  |
+|---|---|
+| EVM          | Base, Base Sepolia, Ethereum, Polygon, Polygon Amoy  |
+| Solana       | Mainnet, Devnet, Testnet                             |
+| Cosmos       | Cosmos Hub, Osmosis, Neutron, Celestia               |
 
-### Supported Networks
+Custom networks can be registered at runtime via `AddNetwork` on each provider.
 
-- **Cosmos Networks**
-- **EVM Networks**
-- **Solana Network**
-
-### Supported Token Standards
-
-- **Native**: Native Cosmos blockchain tokens
-- **ERC20**: Ethereum-compatible token standard
-- **SPL**: Solana Program Library tokens
-
-## Core Concepts
-
-### Payment Payload
-
-A payment payload contains the actual transaction data that needs to be verified:
+## Quick Start
 
 ```go
-type PaymentPayload struct {
-	// X402 payment protocol version.
-	X402Version int `json:"x402Version"`
+import (
+    "log/slog"
+    "github.com/vitwit/x402-go"
+    "github.com/vitwit/x402-go/networks/evm"
+)
 
-	// Payment scheme (e.g. "exact").
-	Scheme string `json:"scheme"`
-
-	// Target network (e.g. "base-testnet", "solana-devnet", etc.).
-	Network string `json:"network"`
-
-	// Base64-encoded transaction payload.
-	Payload string `json:"payload"`
+evmProvider, err := evm.New(evm.Config{
+    Networks:      []string{evm.NetworkBaseSepolia},
+    RPCEndpoints:  map[string]string{evm.NetworkBaseSepolia: "https://sepolia.base.org"},
+    PrivateKeyHex: os.Getenv("FACILITATOR_KEY"), // required for settlement
+})
+if err != nil {
+    log.Fatal(err)
 }
 
+x := x402.New(x402.Config{Logger: slog.Default()})
+x.RegisterNetworkProvider(evmProvider)
+
+// Verify a payment (facilitator /verify endpoint)
+result, err := x.Verify(ctx, req)
+
+// Settle a verified payment (facilitator /settle endpoint)
+result, err := x.Settle(ctx, req)
+
+// Embed payment enforcement in an HTTP route (resource server)
+http.Handle("/api/resource", x.Handler(x402.HandlerConfig{
+    Accepts: []x402.PaymentOption{{
+        Scheme:            x402.SchemeExact,
+        Network:           evm.NetworkBaseSepolia,
+        Amount:            "1000000", // 1 USDC (6 decimals)
+        Asset:             "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        PayTo:             "0xYourAddress",
+        MaxTimeoutSeconds: 300,
+    }},
+    SettleOnVerify: true,
+}, myHandler))
 ```
 
-### Payment Requirements
-
-Payment requirements specify what constitutes a valid payment:
-
-```go
-// PaymentRequirements defines the requirements a resource server accepts for payment.
-type PaymentRequirements struct {
-	// Scheme of the payment protocol to use (e.g., "exact", "stream").
-	Scheme string `json:"scheme"`
-
-	// Network of the blockchain to send payment on (e.g., "ethereum-mainnet").
-	Network string `json:"network"`
-
-	// Maximum amount required to pay for the resource in atomic units of the asset.
-	// Represented as a string because Go does not support uint256.
-	MaxAmountRequired string `json:"maxAmountRequired"`
-
-	// URL of the resource to pay for.
-	Resource string `json:"resource"`
-
-	// Description of the resource being purchased.
-	Description string `json:"description"`
-
-	// MIME type of the resource response (e.g., "application/json").
-	MimeType string `json:"mimeType"`
-
-	// Output schema of the resource response, if applicable.
-	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"`
-
-	// Address to which the payment must be sent.
-	PayTo string `json:"payTo"`
-
-	// Maximum time in seconds for the resource server to respond.
-	MaxTimeoutSeconds int `json:"maxTimeoutSeconds"`
-
-	// Address of the EIP-3009 compliant ERC20 contract.
-	Asset string `json:"asset"`
-
-	// Extra information about payment details specific to the scheme.
-	// For the `exact` scheme on EVM, this may include fields like `name` and `version`.
-	Extra map[string]interface{} `json:"extra,omitempty"`
-}
-```
+For a complete walkthrough see [HOW_TO_USE.md](HOW_TO_USE.md) and the [examples/](examples/) directory.
 
 ## Architecture
 
-The library is organized into several key components:
-
-### Core Types (`types/`)
-- Defines all data structures and interfaces
-- Network and token type definitions
-- Error handling types
-
-### Clients (`clients/`)
-- Network-specific blockchain clients
-- EVM client for Ethereum-compatible chains
-- Solana client for Solana network
-- Cosmos client for Cosmos SDK chains
-
-### Verification (`verification/`)
-- Payment verification logic
-- Multi-chain verification routing
-- Batch verification support
-
-
-### Utilities (`utils/`)
-- Cryptographic functions
-- Validation helpers
-- JSON parsing and serialization
-
-### Logger (`logger/`)
-- Zap and NoOp logger
-
-### Metrics (`metrics/`)
-- Prometheus metrics
-
-## Testing
-
-Run the test suite:
-
-```bash
-go test ./...
+```
+x402/
+├── x402.go          — X402: top-level entry point for facilitators
+├── interfaces.go    — Verifier, Settler, ChainProvider, NetworkProvider interfaces
+├── types.go         — Protocol types (PaymentOption, VerifyRequest, SettleRequest, …)
+├── registry.go      — Internal routing table: (network, scheme) → provider
+├── handler.go       — HTTP payment middleware (PaymentMiddleware)
+├── codec.go         — Header encode/decode helpers
+└── networks/
+    ├── evm/         — EVM provider: EIP-3009, Permit2, ERC-7710
+    ├── solana/      — Solana provider: SPL TransferChecked
+    └── cosmos/      — Cosmos provider: bank MsgSend
 ```
 
-Run with coverage:
+## Implementing a Custom Provider
 
-```bash
-go test -cover ./...
+Any struct that satisfies `x402.NetworkProvider` can be registered:
+
+```go
+type NetworkProvider interface {
+    Networks() []string
+    Schemes()  []x402.Scheme
+
+    Verify(ctx context.Context, req x402.VerifyRequest) (x402.VerifyResult, error)
+    Settle(ctx context.Context, req x402.SettleRequest) (x402.SettleResult, error)
+
+    ChainInfo(ctx context.Context, network string) (x402.ChainInfo, error)
+    LatestBlock(ctx context.Context, network string) (x402.BlockInfo, error)
+    BlockByHeight(ctx context.Context, network string, height int64) (x402.BlockInfo, error)
+}
 ```
+
+Register it with:
+
+```go
+x.RegisterNetworkProvider(myProvider)
+```
+
+If you only need verification (no on-chain settlement), implement `x402.Verifier` and register with `RegisterVerifier`.
+
+## Protocol Specifications
+
+- [EVM — EIP-3009 / Permit2 / ERC-7710](specs/evm.md)
+- [Solana — SPL TransferChecked](specs/solana.md)
+- [Cosmos — bank MsgSend](specs/cosmos.md)
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-### Common Issues
-
-1. **Network Connection Failures**
-   - Check RPC endpoint availability
-   - Verify network configuration
-   - Check firewall settings
-
-2. **Transaction Verification Failures**
-   - Ensure transaction is confirmed
-   - Check block confirmations
-   - Verify network matches
-
-3. **Settlement Failures**
-   - Verify private key format
-   - Check account balance
-   - Ensure proper gas estimation
-
+3. Make your changes with tests
+4. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- GitHub Issues: Report bugs and request features
-- Documentation: Check the docs for detailed API reference
-- Examples: See the `examples/` directory for usage examples
-
-## Roadmap
-
-- [ ] Expanded Cosmos SDK chain support
-- [ ] Additional EVM chains support
-- [ ] Enhanced gas optimization
-- [ ] Metrics and monitoring integration
-- [ ] GraphQL API support
-- [ ] Mobile SDK support
+MIT — see [LICENSE](LICENSE).
