@@ -1,215 +1,116 @@
-// Package x402 provides a complete implementation of the x402 payment protocol
-// for multiple blockchain networks including EVM, Solana, and Cosmos.
 package x402
 
 import (
 	"context"
-	"fmt"
-	"time"
-
-	"github.com/vitwit/x402/clients"
-	"github.com/vitwit/x402/logger"
-	"github.com/vitwit/x402/metrics"
-	"github.com/vitwit/x402/settlement"
-	"github.com/vitwit/x402/types"
-	"github.com/vitwit/x402/verification"
+	"log/slog"
+	"net/http"
 )
 
-// X402 is the main struct that provides all x402 functionality
-type X402 struct {
-	verification *verification.VerificationService
-	settlement   *settlement.SettlementService
-
-	logger  logger.Logger
-	metrics metrics.Recorder
-	timeout time.Duration
-
-	config *types.X402Config
+// Config holds dependencies for an X402 instance.
+type Config struct {
+	// Logger is used for all internal log output.
+	// Defaults to slog.Default() if nil.
+	Logger Logger
 }
 
-// New creates a new X402 instance with the given configuration
-func New(cfg *types.X402Config, opts ...Option) *X402 {
-	if cfg == nil {
-		cfg = &types.X402Config{}
+// X402 is the top-level entry point for the x402 library.
+// Facilitators create one, register network providers, then call Verify and Settle directly
+// or embed payment enforcement in HTTP routes via Handler.
+type X402 struct {
+	registry *Registry
+	log      Logger
+}
+
+// New creates a new X402 instance.
+func New(cfg Config) *X402 {
+	l := cfg.Logger
+	if l == nil {
+		l = slog.Default()
 	}
+	return &X402{registry: NewRegistry(), log: l}
+}
 
-	x := &X402{
-		config:  cfg,
-		timeout: 30 * time.Second,
-		logger:  logger.NoopLogger{},
-		metrics: metrics.NoopRecorder{},
-	}
-	if cfg.DefaultTimeout > 0 {
-		x.timeout = cfg.DefaultTimeout
-	}
-
-	// Apply options
-	for _, opt := range opts {
-		opt(x)
-	}
-
-	// Wire services with injected deps
-	x.verification = verification.NewVerificationService(
-		x.timeout,
-		x.metrics,
-		x.logger,
-	)
-
-	x.settlement = settlement.NewSettlementService(
-		x.timeout,
-		x.metrics,
-		x.logger,
-	)
-
+// RegisterVerifier adds v to the instance. Returns X402 for chaining.
+func (x *X402) RegisterVerifier(v Verifier) *X402 {
+	x.registry.RegisterVerifier(v)
+	x.log.Debug("registered verifier", "networks", v.Networks(), "schemes", v.Schemes())
 	return x
 }
 
-// AddNetwork adds support for a specific network by creating the appropriate client
-func (x *X402) AddNetwork(network string, networkFamily types.ChainFamily, config types.ClientConfig) error {
-	switch networkFamily {
-	case types.ChainEVM:
-		return x.addEVMNetwork(network, config)
-	case types.ChainSolana:
-		return x.addSolanaNetwork(network, config)
-	case types.ChainCosmos:
-		return x.addCosmosNetwork(network, config)
-	default:
-		return &types.X402Error{
-			Code:    types.ErrUnsupportedNetwork,
-			Message: fmt.Sprintf("unsupported network: %s", config.ChainID),
-		}
-	}
+// RegisterSettler adds st to the instance. Returns X402 for chaining.
+func (x *X402) RegisterSettler(st Settler) *X402 {
+	x.registry.RegisterSettler(st)
+	x.log.Debug("registered settler", "networks", st.Networks(), "schemes", st.Schemes())
+	return x
 }
 
-// addEVMNetwork adds an EVM network client
-func (x *X402) addEVMNetwork(network string, config types.ClientConfig) error {
-	client, err := clients.NewEVMClient(network, config.RPCUrl, config.HexSeed)
-	if err != nil {
-		return fmt.Errorf("failed to create EVM client for %s: %w", network, err)
-	}
-
-	if err := x.verification.AddEVMClient(network, client, config); err != nil {
-		return err
-	}
-
-	if err := x.settlement.AddEVMClient(network, client, config); err != nil {
-		return err
-	}
-
-	return nil
+// RegisterChain adds a ChainProvider to the instance. Returns X402 for chaining.
+func (x *X402) RegisterChain(p ChainProvider) *X402 {
+	x.registry.RegisterChainProvider(p)
+	x.log.Debug("registered chain provider", "networks", p.Networks())
+	return x
 }
 
-// addSolanaNetwork adds a Solana network client
-func (x *X402) addSolanaNetwork(network string, config types.ClientConfig) error {
-	client, err := clients.NewSolanaClientWithFeePayer(network, config.RPCUrl, config.HexSeed)
-	if err != nil {
-		return fmt.Errorf("failed to create Solana client for %s: %w", network, err)
-	}
-
-	if err := x.verification.AddSolanaClient(network, client, config); err != nil {
-		return err
-	}
-
-	if err := x.settlement.AddSolanaClient(network, client, config); err != nil {
-		return err
-	}
-
-	return nil
+// RegisterNetworkProvider registers a combined verifier + settler + chain provider
+// in a single call. Returns X402 for chaining.
+func (x *X402) RegisterNetworkProvider(p NetworkProvider) *X402 {
+	x.registry.RegisterNetworkProvider(p)
+	x.log.Info("registered network provider", "networks", p.Networks())
+	return x
 }
 
-// addCosmosNetwork adds a Cosmos network client
-func (x *X402) addCosmosNetwork(network string, config types.ClientConfig) error {
-	client, err := clients.NewCosmosClient(network, config.RPCUrl, config.GRPCUrl, config.AcceptedDenom)
-	if err != nil {
-		return fmt.Errorf("failed to create Cosmos client for %s: %w", network, err)
-	}
-
-	if err := x.verification.AddCosmosClient(network, client, config); err != nil {
-		return err
-	}
-
-	if err := x.settlement.AddCosmosClient(network, client, config); err != nil {
-		return err
-	}
-
-	return nil
+// Verify verifies a payment against the registered verifiers.
+func (x *X402) Verify(ctx context.Context, req VerifyRequest) (VerifyResult, error) {
+	return x.registry.Verify(ctx, req)
 }
 
-// Verify verifies a payment against requirements
-func (x *X402) Verify(
-	ctx context.Context,
-	payload *types.VerifyRequest,
-) (*types.VerificationResult, error) {
-	return x.verification.Verify(ctx, payload)
+// Settle settles a verified payment via the registered settlers.
+func (x *X402) Settle(ctx context.Context, req SettleRequest) (SettleResult, error) {
+	return x.registry.Settle(ctx, req)
 }
 
-// Settle settles a payment transaction
-func (x *X402) Settle(
-	ctx context.Context,
-	payload *types.VerifyRequest,
-) (*types.SettlementResult, error) {
-	return x.settlement.Settle(ctx, payload)
+// BatchSettle settles multiple payments concurrently and returns results in the
+// same order as the input slice. Each settlement is independent.
+func (x *X402) BatchSettle(ctx context.Context, reqs []SettleRequest) []SettleResult {
+	return x.registry.BatchSettle(ctx, reqs)
 }
 
-// BatchVerify verifies multiple payments concurrently
-func (x *X402) BatchVerify(
-	ctx context.Context,
-	payload []*types.VerifyRequest,
-) ([]*types.VerificationResult, error) {
-	if len(payload) == 0 {
-		return nil, &types.X402Error{
-			Code:    types.ErrInvalidPayload,
-			Message: "number of payloads must match number of requirements",
-		}
-	}
-
-	panic("not implemented")
+// Supported returns all (network, scheme) pairs the instance can handle.
+func (x *X402) Supported() []SupportedCapability {
+	return x.registry.Supported()
 }
 
-// BatchSettle settles multiple payments concurrently
-func (x *X402) BatchSettle(
-	ctx context.Context,
-	requests []*types.VerifyRequest,
-) ([]*types.SettlementResult, error) {
-	panic("not implemented")
-}
-
-func (x *X402) Supported() (*types.SupportedResponse, error) {
-	caps := x.verification.Capabilities()
-
-	out := make([]types.SupportedItem, 0, len(caps))
-
-	for _, cap := range caps {
-		out = append(out, types.SupportedItem{
-			X402Version: cap.X402Version,
-			Scheme:      string(cap.Scheme),
-			Network:     cap.Network,
-			ChainFamily: string(cap.ChainFamily),
-		})
-	}
-
-	return &types.SupportedResponse{
-		Kinds: out,
-	}, nil
-}
-
-// IsNetworkSupported checks if a network is supported
+// IsNetworkSupported reports whether any registered verifier handles the given network.
 func (x *X402) IsNetworkSupported(network string) bool {
-	return x.verification.IsNetworkSupported(network) &&
-		x.settlement.IsNetworkSupported(network)
+	return x.registry.IsNetworkSupported(network)
 }
 
-// EstimateSettlementGas estimates gas costs for a settlement
-func (x *X402) EstimateSettlementGas(
-	ctx context.Context,
-	request *types.VerifyRequest,
-) (uint64, error) {
-	gasLimit, _, err := x.settlement.EstimateGas(ctx, request)
-	return gasLimit, err
+// Handler wraps h with x402 payment enforcement.
+// cfg.Registry is set automatically; callers should not set it.
+func (x *X402) Handler(cfg HandlerConfig, h http.Handler) http.Handler {
+	cfg.Registry = x.registry
+	return PaymentMiddleware(cfg, h)
 }
 
-// Close closes all client connections
-func (x *X402) Close() {
-	x.verification.Close()
-	x.settlement.Close()
+// Registry returns the underlying Registry for advanced use.
+func (x *X402) Registry() *Registry { return x.registry }
+
+// ChainInfo returns static metadata for the given CAIP-2 network.
+func (x *X402) ChainInfo(ctx context.Context, network string) (ChainInfo, error) {
+	return x.registry.ChainInfo(ctx, network)
+}
+
+// LatestBlock returns the most recent block on the given network.
+func (x *X402) LatestBlock(ctx context.Context, network string) (BlockInfo, error) {
+	return x.registry.LatestBlock(ctx, network)
+}
+
+// BlockByHeight returns the block at height on the given network.
+func (x *X402) BlockByHeight(ctx context.Context, network string, height int64) (BlockInfo, error) {
+	return x.registry.BlockByHeight(ctx, network, height)
+}
+
+// ListChains returns ChainInfo for every registered network.
+func (x *X402) ListChains(ctx context.Context) []ChainInfo {
+	return x.registry.ListChains(ctx)
 }
