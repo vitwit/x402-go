@@ -1,6 +1,6 @@
 module github.com/vitwit/x402-go
 
-go 1.24.0
+go 1.25.9
 
 require (
 	github.com/cosmos/cosmos-sdk v0.50.11
